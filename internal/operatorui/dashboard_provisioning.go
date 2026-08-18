@@ -182,9 +182,9 @@ func (h *DashboardHandler) dashboardCreateInstallation(w http.ResponseWriter, r 
 	spec := installation.Spec{
 		MachineID: item.ID, DriverID: debian13.DriverID, DriverVersion: debian13.DriverVersion, OSRelease: "13", Architecture: "amd64",
 		ProfileID: builtinProfileID, ProfileRevision: builtinProfileRevision, Profile: profileSnapshot,
-		Artifacts: []installation.Artifact{resolution.Kernel.Descriptor, resolution.Initrd.Descriptor},
-		Storage: installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: strings.TrimSpace(values.TargetDisk), Encrypted: false, TPM2: false},
-		Security: installation.Security{SSHPasswordAuthentication: false, RootLogin: false, AutomaticSecurityUpdates: true},
+		Artifacts:             []installation.Artifact{resolution.Kernel.Descriptor, resolution.Initrd.Descriptor},
+		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: strings.TrimSpace(values.TargetDisk), Encrypted: false, TPM2: false},
+		Security:              installation.Security{SSHPasswordAuthentication: false, RootLogin: false, AutomaticSecurityUpdates: true},
 		LifecycleCredentialID: credentialID, CreatedBy: session.Actor,
 	}
 	if err := debian13.ValidateSpec(spec); err != nil {
