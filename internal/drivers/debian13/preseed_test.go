@@ -24,7 +24,10 @@ func TestRenderSeedPinsDiskAndKeyOnlyAdmin(t *testing.T) {
 	for _, want := range []string{
 		"d-i partman-auto/disk string /dev/vda",
 		"d-i grub-installer/bootdev string /dev/vda",
-		"-p NP guardian",
+		"d-i passwd/user-fullname string Aegis Administrator",
+		"d-i passwd/username string guardian",
+		"d-i passwd/user-password-crypted password !",
+		"in-target usermod -p NP guardian",
 		"PasswordAuthentication no",
 		"KbdInteractiveAuthentication no",
 		"PermitRootLogin no",
