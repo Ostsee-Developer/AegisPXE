@@ -14,9 +14,8 @@ Examples:
 - `MAC001_MACHINE_IDENTITY_CONFLICT`
 - `ART002_ARTIFACT_HASH_MISMATCH`
 - `DRV001_DRIVER_SPEC_UNSUPPORTED`
-- `INS001_INSTALLATION_SPEC_INVALID`
-- `INS003_INSTALLER_STAGE_FAILED`
-- `SEC002_INVALID_INSTALLATION_TOKEN`
+- `INS003_INSTALLATION_ASSIGNMENT_INVALID`
+- `SEC001_CRYPTOGRAPHIC_BOOT_TRUST_REQUIRED`
 - `VAL001_VALIDATION_FAILED`
 
 ## Namespaces
@@ -25,7 +24,7 @@ Examples:
 - `MAC`: machine identity/discovery,
 - `ART`: artifact resolution/download/integrity,
 - `DRV`: driver compile/render/capability,
-- `INS`: installation specification, native installer and first-boot runtime,
+- `INS`: installation specification, assignment, native installer and first-boot runtime,
 - `SEC`: authentication, authorization, trust and secret handling,
 - `VAL`: desired-state validation,
 - `SYS`: internal service/storage/platform failures.
@@ -55,6 +54,10 @@ Examples:
 | `DRV002_DRIVER_RENDER_FAILED` | A driver accepted the InstallationSpec but could not deterministically render the required native material. |
 | `INS001_INSTALLATION_SPEC_INVALID` | An InstallationSpec violates the immutable installation contract or attempts to supply server-owned identity metadata. |
 | `INS002_INSTALLATION_NOT_FOUND` | A requested InstallationSpec does not exist. |
+| `INS003_INSTALLATION_ASSIGNMENT_INVALID` | An assignment request violates Machine approval, InstallationSpec ownership or assignment state rules. |
+| `INS004_INSTALLATION_ASSIGNMENT_CONFLICT` | A Machine already has a different armed Installation assignment. |
+| `INS005_INSTALLATION_ASSIGNMENT_NOT_FOUND` | No assignment exists for the requested Installation or active Machine lookup. |
+| `SEC001_CRYPTOGRAPHIC_BOOT_TRUST_REQUIRED` | The requested secret-bearing provisioning operation requires cryptographic machine/boot proof that has not been established. |
 | `SYS001_STORAGE_FAILURE` | The persistent store could not complete an operation safely. |
 
 The Go registry in `internal/fault` is authoritative for allocated codes. Documentation and source must change together when a new operator-visible code is introduced.
