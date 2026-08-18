@@ -20,7 +20,7 @@ The project may add repository metadata later, but the `.deb` artifact exists be
 
 The repository-root `VERSION` file is the single source of truth for the AegisPXE application version.
 
-Release tags, package metadata, artifact names and embedded binary versions must derive from that file. Version strings must not be duplicated in source code or workflow configuration. `scripts/build.sh` is the canonical binary build entry point and injects the `VERSION` value into the executable. A binary built directly with raw `go build` is intentionally identified as a non-release `dev` build.
+Release tags, package metadata, artifact names and embedded binary versions must derive from that file. Version strings must not be duplicated in source code or workflow configuration. `scripts/version.sh` is the canonical derivation helper and `scripts/build.sh` is the canonical binary build entry point. A binary built directly with raw `go build` is intentionally identified as a non-release `dev` build.
 
 Changing the project version therefore requires changing only `VERSION`; CI and release gates verify that generated artifacts agree with it.
 
@@ -32,6 +32,8 @@ The accepted release format is `MAJOR.MINOR.PATCH` with an optional SemVer-style
 - `1.0.0`
 
 Versions carrying a prerelease suffix are published as GitHub prereleases. A plain `MAJOR.MINOR.PATCH` version is published as a stable GitHub release.
+
+Debian package versions are derived from the same project version but use Debian's `~` prerelease ordering. For example, project version `1.0.0-rc.1` produces package version `1.0.0~rc.1`, while the binary version, Git tag and GitHub release remain `1.0.0-rc.1`. This guarantees that APT considers `1.0.0` newer than its release candidates without introducing a second version source.
 
 ## Unattended release contract
 
@@ -96,7 +98,7 @@ Database or state migrations must:
 
 ## Build reproducibility
 
-CI must build the `.deb` from repository source. The package version and embedded application version must agree.
+CI must build the `.deb` from repository source. The package version and embedded application version must both be deterministic derivations of `VERSION` and CI must verify the expected mapping.
 
 Before an artifact may be published, CI must inspect at least:
 
