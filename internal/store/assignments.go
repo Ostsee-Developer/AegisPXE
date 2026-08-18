@@ -18,9 +18,6 @@ func (s *Store) ArmInstallation(ctx context.Context, machineID, installationID, 
 	machineID = strings.TrimSpace(machineID)
 	installationID = strings.TrimSpace(installationID)
 	actor = strings.TrimSpace(actor)
-	if machineID == "" || installationID == "" || actor == "" {
-		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "assignment machine, installation and actor are required", nil)
-	}
 	if strings.TrimSpace(requestID) == "" {
 		var err error
 		requestID, err = idgen.New("req_")
@@ -28,11 +25,10 @@ func (s *Store) ArmInstallation(ctx context.Context, machineID, installationID, 
 			return assignment.Assignment{}, fault.New(fault.StorageFailure, "could not allocate request identifier", err)
 		}
 	}
-	id, err := idgen.New("a_")
-	if err != nil {
-		return assignment.Assignment{}, fault.New(fault.StorageFailure, "could not allocate assignment identifier", err)
+	if machineID == "" || installationID == "" || actor == "" {
+		s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.InstallationAssignmentInvalid, "missing_required_input")
+		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "assignment machine, installation and actor are required", nil)
 	}
-	now := s.now().UTC()
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -43,34 +39,54 @@ func (s *Store) ArmInstallation(ctx context.Context, machineID, installationID, 
 	var policy machine.Policy
 	if err := tx.QueryRowContext(ctx, `SELECT policy FROM machines WHERE id=?`, machineID).Scan(&policy); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.MachineNotFound, "machine_not_found")
 			return assignment.Assignment{}, fault.New(fault.MachineNotFound, "machine not found", err)
 		}
 		return assignment.Assignment{}, s.storageError("read assignment machine", err)
 	}
 	if policy != machine.PolicyProvision {
+		s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.InstallationAssignmentInvalid, "machine_not_operator_approved")
 		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "machine is not operator-approved for provisioning", nil)
 	}
 
 	var specMachineID string
 	if err := tx.QueryRowContext(ctx, `SELECT machine_id FROM installation_specs WHERE id=?`, installationID).Scan(&specMachineID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.InstallationNotFound, "installation_not_found")
 			return assignment.Assignment{}, fault.New(fault.InstallationNotFound, "installation not found", err)
 		}
 		return assignment.Assignment{}, s.storageError("read assignment installation", err)
 	}
 	if specMachineID != machineID {
+		s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.InstallationAssignmentInvalid, "installation_machine_mismatch")
 		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "installation belongs to a different machine", nil)
+	}
+
+	var existingState assignment.State
+	err = tx.QueryRowContext(ctx, `SELECT state FROM installation_assignments WHERE installation_id=? LIMIT 1`, installationID).Scan(&existingState)
+	if err == nil {
+		s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.InstallationAssignmentInvalid, "installation_already_assigned")
+		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "installation has already been assigned", nil)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return assignment.Assignment{}, s.storageError("check installation assignment history", err)
 	}
 
 	var existing string
 	err = tx.QueryRowContext(ctx, `SELECT installation_id FROM installation_assignments WHERE machine_id=? AND state='armed' LIMIT 1`, machineID).Scan(&existing)
 	if err == nil {
+		s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.InstallationAssignmentConflict, "machine_already_armed")
 		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentConflict, "machine already has an armed installation", nil)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return assignment.Assignment{}, s.storageError("check active assignment", err)
 	}
 
+	id, err := idgen.New("a_")
+	if err != nil {
+		return assignment.Assignment{}, fault.New(fault.StorageFailure, "could not allocate assignment identifier", err)
+	}
+	now := s.now().UTC()
 	item := assignment.Assignment{
 		ID:               id,
 		MachineID:        machineID,
@@ -81,6 +97,7 @@ func (s *Store) ArmInstallation(ctx context.Context, machineID, installationID, 
 		ArmedBy:          actor,
 	}
 	if err := item.Validate(); err != nil {
+		s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.InstallationAssignmentInvalid, "assignment_validation_failed")
 		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "assignment is invalid", err)
 	}
 
@@ -122,15 +139,16 @@ func (s *Store) ArmInstallation(ctx context.Context, machineID, installationID, 
 func (s *Store) CancelAssignment(ctx context.Context, installationID, requestID, actor string) (assignment.Assignment, error) {
 	installationID = strings.TrimSpace(installationID)
 	actor = strings.TrimSpace(actor)
-	if installationID == "" || actor == "" {
-		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "assignment installation and actor are required", nil)
-	}
 	if strings.TrimSpace(requestID) == "" {
 		var err error
 		requestID, err = idgen.New("req_")
 		if err != nil {
 			return assignment.Assignment{}, fault.New(fault.StorageFailure, "could not allocate request identifier", err)
 		}
+	}
+	if installationID == "" || actor == "" {
+		s.logAssignmentRejected(ctx, "cancel", requestID, "", installationID, actor, fault.InstallationAssignmentInvalid, "missing_required_input")
+		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "assignment installation and actor are required", nil)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -141,9 +159,13 @@ func (s *Store) CancelAssignment(ctx context.Context, installationID, requestID,
 
 	item, err := assignmentForInstallationTx(ctx, tx, installationID)
 	if err != nil {
+		if fault.Code(err) == fault.InstallationAssignmentNotFound {
+			s.logAssignmentRejected(ctx, "cancel", requestID, "", installationID, actor, fault.InstallationAssignmentNotFound, "assignment_not_found")
+		}
 		return assignment.Assignment{}, err
 	}
 	if item.State != assignment.StateArmed {
+		s.logAssignmentRejected(ctx, "cancel", requestID, item.MachineID, installationID, actor, fault.InstallationAssignmentInvalid, "assignment_not_armed")
 		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "only an armed assignment can be cancelled", nil)
 	}
 	now := s.now().UTC()
@@ -212,6 +234,20 @@ func (s *Store) Assignments(ctx context.Context) ([]assignment.Assignment, error
 		return nil, s.storageError("iterate assignments", err)
 	}
 	return items, nil
+}
+
+func (s *Store) logAssignmentRejected(ctx context.Context, operation, requestID, machineID, installationID, actor, code, cause string) {
+	s.logger.WarnContext(ctx, "installation assignment operation rejected",
+		"component", "store.assignment",
+		"operation", operation,
+		"request_id", requestID,
+		"machine_id", machineID,
+		"installation_id", installationID,
+		"actor", actor,
+		"result", "rejected",
+		"error_code", code,
+		"cause", cause,
+	)
 }
 
 type assignmentScanner interface {
