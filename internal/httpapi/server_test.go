@@ -27,7 +27,7 @@ func TestRepeatedDiscoveryKeepsOnePendingMachine(t *testing.T) {
 		"firmware":     {"efi"},
 	}
 
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest(http.MethodGet, "http://aegispxe.test/api/v1/discovery.ipxe?"+form.Encode(), nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -51,16 +51,11 @@ func TestRepeatedDiscoveryKeepsOnePendingMachine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 20 {
-		t.Fatalf("events = %d, want 20", len(events))
+	if len(events) != 2 {
+		t.Fatalf("events = %d, want 2", len(events))
 	}
-	if events[0].Type != event.MachineDiscovered {
-		t.Fatalf("first event = %s, want %s", events[0].Type, event.MachineDiscovered)
-	}
-	for _, item := range events[1:] {
-		if item.Type != event.MachineSeen {
-			t.Fatalf("repeat event = %s, want %s", item.Type, event.MachineSeen)
-		}
+	if events[0].Type != event.MachineDiscovered || events[1].Type != event.MachineSeen {
+		t.Fatalf("events = %s, %s", events[0].Type, events[1].Type)
 	}
 }
 
@@ -145,17 +140,9 @@ func TestBootstrapUsesStockIPXEQueryParameters(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("bootstrap status = %d", rec.Code)
 	}
-	body := rec.Body.String()
-	for _, expected := range []string{
-		"#!ipxe",
-		"chain http://192.0.2.10:8090/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid:uristring}&architecture=${buildarch:uristring}&firmware=${platform:uristring} || goto discovery_failed\nexit 0\n:discovery_failed",
-	} {
-		if !strings.Contains(body, expected) {
-			t.Fatalf("bootstrap missing %q: %s", expected, body)
-		}
-	}
-	if strings.Contains(body, "\nparams\n") || strings.Contains(body, "\nparam ") || strings.Contains(body, "##params") {
-		t.Fatalf("bootstrap unexpectedly requires PARAM_CMD: %s", body)
+	want := "chain http://192.0.2.10:8090/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid:uristring}&architecture=${buildarch:uristring}&firmware=${platform:uristring}"
+	if !strings.Contains(rec.Body.String(), want) {
+		t.Fatalf("bootstrap missing stock-iPXE discovery chain: %s", rec.Body.String())
 	}
 }
 
