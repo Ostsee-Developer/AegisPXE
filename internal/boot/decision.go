@@ -5,8 +5,9 @@ import "github.com/Ostsee-Developer/AegisPXE/internal/machine"
 type Action string
 
 const (
-	ActionLocal   Action = "local"
-	ActionBlocked Action = "blocked"
+	ActionLocal     Action = "local"
+	ActionBlocked   Action = "blocked"
+	ActionProvision Action = "provision"
 )
 
 type Decision struct {
