@@ -47,8 +47,9 @@ jobs:
           test -n "$deb"
           test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
           test "$(dpkg-deb --field "$deb" Version)" = "$(tr -d '[:space:]' < VERSION)"
-          dpkg-deb --contents "$deb" | grep -Fq './usr/lib/aegispxe/aegispxe-server'
-          dpkg-deb --contents "$deb" | grep -Fq './lib/systemd/system/aegispxe.service'
+          contents="$(dpkg-deb --contents "$deb")"
+          grep -Fq './usr/lib/aegispxe/aegispxe-server' <<<"$contents"
+          grep -Fq './lib/systemd/system/aegispxe.service' <<<"$contents"
           sudo dpkg -i "$deb"
           test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(tr -d '[:space:]' < VERSION)"
       - name: Exercise packaged health endpoint
@@ -60,7 +61,8 @@ jobs:
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           for _ in $(seq 1 20); do
-            if curl --fail --silent http://127.0.0.1:18090/healthz | grep -Fq '"status":"ok"'; then
+            body="$(curl --fail --silent http://127.0.0.1:18090/healthz 2>/dev/null || true)"
+            if grep -Fq '"status":"ok"' <<<"$body"; then
               exit 0
             fi
             sleep 0.25
