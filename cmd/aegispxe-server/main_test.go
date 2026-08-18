@@ -19,9 +19,9 @@ func TestOperatorListenerAcceptsOnlyLoopbackIP(t *testing.T) {
 	}
 }
 
-func TestHTTPServerWriteTimeoutCoversVerifiedArtifactFetch(t *testing.T) {
+func TestHTTPServerWriteTimeoutCoversFullDebianTrustResolution(t *testing.T) {
 	server := newHTTPServer("127.0.0.1:0", http.NotFoundHandler())
-	if server.WriteTimeout != 3*time.Minute {
-		t.Fatalf("WriteTimeout=%s want=3m", server.WriteTimeout)
+	if server.WriteTimeout != 10*time.Minute {
+		t.Fatalf("WriteTimeout=%s want=10m", server.WriteTimeout)
 	}
 }
