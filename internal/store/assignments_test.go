@@ -1,7 +1,11 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Ostsee-Developer/AegisPXE/internal/assignment"
@@ -9,6 +13,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/installation"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
+	"github.com/Ostsee-Developer/AegisPXE/internal/observability"
 )
 
 func TestAssignmentArmIsSingleActiveAuditedBinding(t *testing.T) {
@@ -76,6 +81,46 @@ func TestAssignmentRejectsSpecOwnedByDifferentMachine(t *testing.T) {
 	spec := createAssignmentSpec(t, state, first.ID, "req_spec_a")
 	if _, err := state.ArmInstallation(ctx, second.ID, spec.ID, "req_wrong_machine", "test:operator"); fault.Code(err) != fault.InstallationAssignmentInvalid {
 		t.Fatalf("machine mismatch code=%q err=%v", fault.Code(err), err)
+	}
+}
+
+func TestAssignmentRejectionIsCorrelatedWithoutCredentialLeak(t *testing.T) {
+	var logs bytes.Buffer
+	logger := observability.New(&logs, slog.LevelDebug)
+	state, err := Open(context.Background(), filepath.Join(t.TempDir(), "aegispxe.db"), logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+
+	ctx := context.Background()
+	machineRecord, _, err := state.DiscoverMachine(ctx, machine.Observation{MAC: "BC:24:11:00:30:04"}, "req_discover_reject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := createAssignmentSpec(t, state, machineRecord.ID, "req_spec_reject")
+	_, err = state.ArmInstallation(ctx, machineRecord.ID, spec.ID, "req_arm_reject", "test:operator")
+	if fault.Code(err) != fault.InstallationAssignmentInvalid {
+		t.Fatalf("rejection code=%q err=%v", fault.Code(err), err)
+	}
+
+	logText := logs.String()
+	for _, want := range []string{
+		`"component":"store.assignment"`,
+		`"operation":"arm"`,
+		`"request_id":"req_arm_reject"`,
+		`"machine_id":"` + machineRecord.ID + `"`,
+		`"installation_id":"` + spec.ID + `"`,
+		`"result":"rejected"`,
+		`"error_code":"` + fault.InstallationAssignmentInvalid + `"`,
+		`"cause":"machine_not_operator_approved"`,
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("assignment rejection log missing %s: %s", want, logText)
+		}
+	}
+	if strings.Contains(logText, spec.LifecycleCredentialID) {
+		t.Fatal("assignment rejection log leaked lifecycle credential identity")
 	}
 }
 
