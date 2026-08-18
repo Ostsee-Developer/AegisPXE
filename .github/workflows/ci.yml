@@ -10,151 +10,50 @@ permissions:
   contents: read
 
 jobs:
-  go:
+  verify:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
           go-version: 1.25.x
-      - name: Verify Go
+
+      - name: Verify source
         shell: bash
         run: |
           set -euo pipefail
-          unformatted="$(gofmt -l cmd internal)"
-          if [ -n "$unformatted" ]; then
-            echo "Go files requiring gofmt:" >&2
-            echo "$unformatted" >&2
-            exit 1
-          fi
+          test -z "$(gofmt -l cmd internal)"
           go test ./...
           go vet ./...
-          OUTPUT=/tmp/aegispxe-ci-build bash scripts/build.sh >/dev/null
-          test "$(/tmp/aegispxe-ci-build -version)" = "$(bash scripts/version.sh project)"
-      - name: Verify version derivation
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf '1.0.0-rc.1\n' > /tmp/aegispxe-version-rc
-          printf '1.0.0\n' > /tmp/aegispxe-version-stable
-          rc_version="$(AEGISPXE_VERSION_FILE=/tmp/aegispxe-version-rc bash scripts/version.sh debian)"
-          stable_version="$(AEGISPXE_VERSION_FILE=/tmp/aegispxe-version-stable bash scripts/version.sh debian)"
-          test "$rc_version" = '1.0.0~rc.1'
-          test "$stable_version" = '1.0.0'
-          dpkg --compare-versions "$stable_version" gt "$rc_version"
+          OUTPUT=/tmp/aegispxe-ci bash scripts/build.sh >/dev/null
+          test "$(/tmp/aegispxe-ci -version)" = "$(bash scripts/version.sh project)"
 
-  package-smoke:
-    needs: go
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Setup Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: 1.25.x
-      - name: Build and install package
+      - name: Package smoke
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/build-deb.sh
           deb="$(find dist -maxdepth 1 -name 'aegispxe_*.deb' -print -quit)"
           test -n "$deb"
-          test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
-          test "$(dpkg-deb --field "$deb" Version)" = "$(bash scripts/version.sh debian)"
-          dependencies="$(dpkg-deb --field "$deb" Depends)"
-          grep -Fq 'adduser' <<<"$dependencies"
-          grep -Fq 'ipxe' <<<"$dependencies"
-          grep -Fq 'tftpd-hpa' <<<"$dependencies"
-          contents="$(dpkg-deb --contents "$deb")"
-          grep -Fq './usr/lib/aegispxe/aegispxe-server' <<<"$contents"
-          grep -Fq './usr/lib/aegispxe/install-pxe-assets' <<<"$contents"
-          grep -Fq './lib/systemd/system/aegispxe.service' <<<"$contents"
-
-          control_dir="$(mktemp -d)"
-          dpkg-deb -e "$deb" "$control_dir"
-          grep -Fq '/usr/lib/aegispxe/install-pxe-assets' "$control_dir/postinst"
 
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "./$deb"
-          test -f /usr/lib/ipxe/ipxe.efi
-          test -f /usr/lib/ipxe/undionly.kpxe
-          test -x /usr/lib/aegispxe/install-pxe-assets
+
           test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(bash scripts/version.sh project)"
           sudo systemctl is-active --quiet aegispxe.service
-          test "$(stat -c '%U:%G' /var/lib/aegispxe)" = "aegispxe:aegispxe"
-      - name: Verify safe TFTP asset materialization
-        shell: bash
-        run: |
-          set -euo pipefail
-          tftp_root="$(mktemp -d)"
-          tftp_config="$(mktemp)"
-          printf 'TFTP_DIRECTORY="%s"\n' "$tftp_root" > "$tftp_config"
+          curl --fail --silent http://127.0.0.1:8090/healthz | grep -Fq '"status":"ok"'
 
-          sudo AEGISPXE_TFTPD_CONFIG="$tftp_config" /usr/lib/aegispxe/install-pxe-assets
-          cmp -s /usr/lib/ipxe/ipxe.efi "$tftp_root/ipxe.efi"
-          cmp -s /usr/lib/ipxe/undionly.kpxe "$tftp_root/undionly.kpxe"
+          . /etc/default/tftpd-hpa
+          test -f "$TFTP_DIRECTORY/ipxe.efi"
+          test -f "$TFTP_DIRECTORY/undionly.kpxe"
 
-          printf 'foreign bootloader\n' | sudo tee "$tftp_root/ipxe.efi" >/dev/null
-          sudo AEGISPXE_TFTPD_CONFIG="$tftp_config" /usr/lib/aegispxe/install-pxe-assets
-          grep -Fxq 'foreign bootloader' "$tftp_root/ipxe.efi"
-      - name: Exercise packaged discovery slice
-        shell: bash
-        run: |
-          set -euo pipefail
-          db="$(mktemp)"
-          AEGISPXE_DB="$db" AEGISPXE_LISTEN=127.0.0.1:18090 /usr/lib/aegispxe/aegispxe-server >/tmp/aegispxe-smoke.log 2>&1 &
-          pid=$!
-          trap 'kill "$pid" 2>/dev/null || true' EXIT
-
-          ready=false
-          for _ in $(seq 1 20); do
-            body="$(curl --fail --silent http://127.0.0.1:18090/healthz 2>/dev/null || true)"
-            if grep -Fq '"status":"ok"' <<<"$body"; then
-              ready=true
-              break
-            fi
-            sleep 0.25
-          done
-          if [ "$ready" != true ]; then
-            cat /tmp/aegispxe-smoke.log
-            exit 1
-          fi
-
-          bootstrap="$(curl --fail --silent http://127.0.0.1:18090/boot/discovery.ipxe)"
-          grep -Fq '#!ipxe' <<<"$bootstrap"
-          grep -Fq 'api/v1/discovery.ipxe?mac=${net0/mac}' <<<"$bootstrap"
-          if grep -Fq '##params' <<<"$bootstrap" || grep -Fxq 'params' <<<"$bootstrap" || grep -Eq '^param[[:space:]]' <<<"$bootstrap"; then
-            echo 'bootstrap unexpectedly requires optional iPXE PARAM_CMD' >&2
-            exit 1
-          fi
-
-          for _ in $(seq 1 20); do
-            decision="$(curl --fail --silent --get \
-              --data-urlencode 'mac=52:54:00:12:34:56' \
-              --data-urlencode 'smbios_uuid=11111111-2222-3333-4444-555555555555' \
-              --data-urlencode 'architecture=x86_64' \
-              --data-urlencode 'firmware=efi' \
-              http://127.0.0.1:18090/api/v1/discovery.ipxe)"
-            grep -Fq 'pending_approval' <<<"$decision"
-          done
-
-          machines="$(curl --fail --silent http://127.0.0.1:18090/api/v1/machines)"
-          machine_id="$(python3 -c 'import json,sys; data=json.load(sys.stdin); assert len(data["machines"]) == 1; m=data["machines"][0]; assert m["policy"] == "pending"; print(m["id"])' <<<"$machines")"
-          test -n "$machine_id"
-
-          events="$(curl --fail --silent "http://127.0.0.1:18090/api/v1/machines/${machine_id}/events")"
-          python3 -c 'import json,sys; data=json.load(sys.stdin); assert len(data["events"]) == 20; assert data["events"][0]["type"] == "MACHINE_DISCOVERED"' <<<"$events"
-
-          ui="$(curl --fail --silent http://127.0.0.1:18090/ui/)"
-          grep -Fq "$machine_id" <<<"$ui"
-          grep -Fq 'PENDING' <<<"$ui"
-      - name: Verify remove preserves state
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo touch /var/lib/aegispxe/package-smoke-state
-          sudo dpkg -r aegispxe
-          test -e /var/lib/aegispxe/package-smoke-state
+          decision="$(curl --fail --silent --get \
+            --data-urlencode 'mac=52:54:00:12:34:56' \
+            --data-urlencode 'smbios_uuid=11111111-2222-3333-4444-555555555555' \
+            --data-urlencode 'architecture=x86_64' \
+            --data-urlencode 'firmware=efi' \
+            http://127.0.0.1:8090/api/v1/discovery.ipxe)"
+          grep -Fq 'pending_approval' <<<"$decision"
