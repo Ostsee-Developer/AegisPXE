@@ -139,7 +139,7 @@ func (h *DashboardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DashboardHandler) dashboardSession(r *http.Request) (operator.Session, string, bool) {
-	if h.auth == nil || !secureTransport(r) {
+	if h.auth == nil || h.state == nil || !secureTransport(r) {
 		return operator.Session{}, "", false
 	}
 	cookie, err := r.Cookie(sessionCookieName)
@@ -147,7 +147,30 @@ func (h *DashboardHandler) dashboardSession(r *http.Request) (operator.Session, 
 		return operator.Session{}, "", false
 	}
 	session, ok := h.auth.Session(cookie.Value)
-	return session, cookie.Value, ok
+	if !ok || strings.TrimSpace(session.UserID) == "" {
+		return operator.Session{}, "", false
+	}
+	user, err := h.state.OperatorUser(r.Context(), session.UserID)
+	if err != nil || user.Status != "active" || user.Role != session.Role || session.Actor != "user:"+user.Subject {
+		h.auth.Logout(cookie.Value)
+		cause := "principal_state_changed"
+		if err != nil {
+			cause = "principal_unavailable"
+		}
+		h.logger.WarnContext(r.Context(), "dashboard session invalidated after principal revalidation",
+			"component", "operator.auth",
+			"operation", "session_revalidate",
+			"request_id", requestID(r),
+			"user_id", session.UserID,
+			"actor", session.Actor,
+			"auth_method", session.AuthMethod,
+			"error_code", fault.OperatorSessionRequired,
+			"result", "rejected",
+			"cause", cause,
+		)
+		return operator.Session{}, "", false
+	}
+	return session, cookie.Value, true
 }
 
 func (h *DashboardHandler) requireDashboardPage(w http.ResponseWriter, r *http.Request) (operator.Session, bool) {
