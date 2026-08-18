@@ -47,11 +47,13 @@ type discoveryCounter struct {
 }
 
 type discoveryResponse struct {
-	MachineID string         `json:"machine_id"`
-	Created   bool           `json:"created"`
-	Policy    machine.Policy `json:"policy"`
-	Action    boot.Action    `json:"action"`
-	Reason    string         `json:"reason"`
+	MachineID      string         `json:"machine_id"`
+	Created        bool           `json:"created"`
+	Policy         machine.Policy `json:"policy"`
+	Action         boot.Action    `json:"action"`
+	Reason         string         `json:"reason"`
+	InstallationID string         `json:"installation_id,omitempty"`
+	AssignmentID   string         `json:"-"`
 }
 
 type identifierResponse struct {
@@ -98,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/machines", s.machines)
 	mux.HandleFunc("GET /api/v1/machines/{id}", s.machine)
 	mux.HandleFunc("GET /api/v1/machines/{id}/events", s.machineEvents)
+	s.registerProvisioning(mux)
 	webui.New(s.state, s.logger, s.version).Register(mux)
 	return requestLog(s.logger, mux)
 }
@@ -154,6 +157,10 @@ func (s *Server) discoveryIPXE(w http.ResponseWriter, r *http.Request) {
 		s.writeIPXE(w, "Discovery failed safely", "server_rejected")
 		return
 	}
+	if response.Action == boot.ActionProvision && response.InstallationID != "" {
+		s.writeProvisioningChain(w, r, response.InstallationID)
+		return
+	}
 
 	message := fmt.Sprintf("Machine %s registered (%s)", response.MachineID, response.Policy)
 	if response.Action == boot.ActionBlocked {
@@ -167,16 +174,33 @@ func (s *Server) discover(ctx context.Context, observation machine.Observation, 
 	if err != nil {
 		return discoveryResponse{}, err
 	}
-	decision := boot.Decide(item.Policy)
-	s.logger.InfoContext(ctx, "boot decision evaluated", "component", "boot.policy", "operation", "evaluate", "request_id", requestID, "machine_id", item.ID, "policy", item.Policy, "action", decision.Action, "reason", decision.Reason, "result", "success")
+	decision, installationID, assignmentID, err := s.assignmentDecision(ctx, item, requestID)
+	if err != nil {
+		return discoveryResponse{}, err
+	}
+	s.logger.InfoContext(ctx, "boot decision evaluated",
+		"component", "boot.policy",
+		"operation", "evaluate",
+		"request_id", requestID,
+		"machine_id", item.ID,
+		"installation_id", installationID,
+		"assignment_id", assignmentID,
+		"policy", item.Policy,
+		"action", decision.Action,
+		"reason", decision.Reason,
+		"result", "success",
+	)
 	return discoveryResponse{
-		MachineID: item.ID,
-		Created:   created,
-		Policy:    item.Policy,
-		Action:    decision.Action,
-		Reason:    decision.Reason,
+		MachineID:      item.ID,
+		Created:        created,
+		Policy:         item.Policy,
+		Action:         decision.Action,
+		Reason:         decision.Reason,
+		InstallationID: installationID,
+		AssignmentID:   assignmentID,
 	}, nil
 }
+
 func (s *Server) discoveryBootstrap(w http.ResponseWriter, r *http.Request) {
 	base := requestBaseURL(r)
 	endpoint := base + "/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid}&architecture=${buildarch:uristring}&firmware=${platform:uristring}"
