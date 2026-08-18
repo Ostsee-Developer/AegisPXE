@@ -25,7 +25,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -z "$(gofmt -l cmd internal)"
+          unformatted="$(gofmt -l cmd internal)"
+          if [[ -n "$unformatted" ]]; then
+            printf 'gofmt required for:\n%s\n' "$unformatted"
+            exit 1
+          fi
           go test ./...
           go vet ./...
           OUTPUT=/tmp/aegispxe-ci bash scripts/build.sh >/dev/null
