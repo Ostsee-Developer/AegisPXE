@@ -1,6 +1,39 @@
 # Testing Strategy
 
-AegisPXE is built vertical-slice first. Tests must prove both successful provisioning and useful failure observability.
+AegisPXE is built vertical-slice first. Tests must prove both successful provisioning and useful failure observability without becoming a second implementation of the product.
+
+## Core test rule
+
+**One test should prove one contract.**
+
+Tests should be small, explicit and easy to diagnose. We do not optimize for maximum assertion count or maximum coverage per test function.
+
+A test is a review concern when understanding what it proves requires mentally executing a large fixture, a copied implementation, or hundreds of lines of setup/output.
+
+There is deliberately no arbitrary line-count limit. Moving complexity into test helpers merely to satisfy a number does not make a test simpler.
+
+## What tests must not become
+
+Avoid:
+
+- reimplementing production algorithms inside tests,
+- giant end-to-end behavior simulations in unit tests,
+- asserting complete installer documents when only one contract changed,
+- large inline JSON/YAML/Preseed/Cloud-Init blobs for a single assertion,
+- broad golden files for unstable or incidental output,
+- duplicated assertions across unit, integration and E2E layers,
+- one test that attempts to validate an entire subsystem.
+
+Prefer:
+
+- focused inputs,
+- focused expected outcomes,
+- small builders/fixtures with meaningful defaults,
+- table-driven tests only when cases share the same contract,
+- semantic assertions over exact full-document equality,
+- dedicated contract tests for security, state and observability invariants.
+
+Golden files are acceptable only for intentionally stable external formats where reviewing the whole generated artifact provides real value. They must not become snapshots that approve unrelated churn.
 
 ## Test layers
 
@@ -10,15 +43,36 @@ Pure domain logic, validation, state transitions, redaction and deterministic dr
 
 Unit tests must not require root, network access or a VM.
 
+A unit test should normally exercise one domain rule. For example:
+
+- `pending -> provision` is allowed,
+- `blocked -> provision` is rejected without explicit approval,
+- a secret field is redacted,
+- a Debian driver renders the required installer directive.
+
+Do not test the entire Debian seed to prove one directive exists.
+
 ### Integration tests
 
 Database transactions, event persistence, machine discovery, API authentication, helper protocol boundaries, artifact metadata handling and driver/server integration.
 
 Integration tests use temporary isolated state and must be repeatable.
 
+Each integration test should focus on one boundary or transaction. For example, machine discovery may assert atomically that one machine and one discovery event were persisted, without also testing the WebUI, package installer and PXE boot path in the same function.
+
 ### E2E tests
 
 Real boot/install/first-boot flows in disposable VMs. E2E is a release gate, not a manual bonus step.
+
+E2E owns the complete workflow. Unit and integration tests should not reproduce E2E behavior in miniature.
+
+E2E assertions stay outcome-oriented:
+
+- expected lifecycle terminal state,
+- expected required events,
+- expected machine/install identity,
+- expected validation result,
+- useful logs for failure.
 
 ## First milestones
 
@@ -50,8 +104,8 @@ Before adding Debian Encrypted, Standard should complete at least 10 consecutive
 
 A feature is not complete because unit tests pass. For provisioning features, completion means:
 
-- deterministic compiler tests,
-- integration tests for server state,
+- small deterministic contract tests,
+- focused integration tests for state/boundaries,
 - E2E success path,
 - E2E or integration failure path,
 - expected logs/events verified,
@@ -70,13 +124,15 @@ We deliberately test failures such as:
 - machine is blocked while assignment exists,
 - helper refuses an invalid privileged action.
 
-Failure tests must assert both behavior and observability.
+Failure tests must assert both behavior and observability, but should assert only the relevant error code/event/log fields rather than an entire log stream.
 
 ## Observability assertions
 
 Operational tests should verify relevant records contain correlation identifiers and stable error codes.
 
 Tests must also verify sensitive fixtures are redacted and never persisted in normal logs.
+
+Do not assert timestamps, formatting details or unrelated log fields unless they are part of the contract under test.
 
 ## Driver certification
 
@@ -91,15 +147,28 @@ A driver cannot be marked production-ready until it demonstrates:
 - full unattended E2E,
 - useful failed-install telemetry.
 
-## CI
+These requirements should be covered by separate focused tests plus E2E rather than a single oversized driver test.
 
-Initial CI should enforce at least:
+## CI design
 
-- `gofmt`,
-- `go test ./...`,
-- `go vet ./...`,
-- static/security checks chosen by the project,
-- documentation contract checks,
-- no generated/uncommitted diffs where generation is used.
+CI should remain intentionally small and precise.
 
-E2E VM tests may run in a dedicated environment but must remain a required release gate before a supported target is declared stable.
+The normal pull-request lane should prefer a few high-signal jobs rather than dozens of partially overlapping checks:
+
+1. **contracts/docs**: project constitution and static repository invariants,
+2. **go**: `gofmt`, `go test ./...`, `go vet ./...`,
+3. **package smoke** once executable code exists: build the `.deb`, inspect it and install it in a clean supported environment.
+
+Long-running VM provisioning E2E belongs in a dedicated gate and must not be duplicated by giant unit/integration suites.
+
+CI must not run the same logical test in multiple jobs merely to increase activity. Every job should have a distinct failure meaning.
+
+When a CI failure occurs, its job and test name should make the failed contract obvious without reading hundreds of unrelated log lines.
+
+## Test maintenance
+
+A test that blocks a correct architectural change because it asserts old implementation details should be rewritten or removed, not preserved by compatibility code.
+
+When production behavior is intentionally replaced, update the smallest relevant contract tests and let E2E verify the complete path.
+
+Test readability is part of maintainability. A growing test file should be split by domain contract before it becomes a historical dumping ground.
