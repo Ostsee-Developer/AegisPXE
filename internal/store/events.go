@@ -10,8 +10,8 @@ import (
 )
 
 func appendEventTx(ctx context.Context, tx *sql.Tx, value event.Event) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO events(entity_type,entity_id,event_type,occurred_at,request_id,message,error_code)
-		VALUES(?,?,?,?,?,?,?)`, value.EntityType, value.EntityID, value.Type, value.OccurredAt.UTC().Format(time.RFC3339Nano), value.RequestID, value.Message, value.ErrorCode)
+	_, err := tx.ExecContext(ctx, `INSERT INTO events(entity_type,entity_id,event_type,occurred_at,request_id,actor,message,error_code)
+		VALUES(?,?,?,?,?,?,?,?)`, value.EntityType, value.EntityID, value.Type, value.OccurredAt.UTC().Format(time.RFC3339Nano), value.RequestID, value.Actor, value.Message, value.ErrorCode)
 	if err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}
@@ -19,7 +19,7 @@ func appendEventTx(ctx context.Context, tx *sql.Tx, value event.Event) error {
 }
 
 func (s *Store) Events(ctx context.Context, entityType, entityID string) ([]event.Event, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT sequence,entity_type,entity_id,event_type,occurred_at,request_id,message,error_code
+	rows, err := s.db.QueryContext(ctx, `SELECT sequence,entity_type,entity_id,event_type,occurred_at,request_id,actor,message,error_code
 		FROM events WHERE entity_type=? AND entity_id=? ORDER BY sequence`, entityType, entityID)
 	if err != nil {
 		return nil, fmt.Errorf("query events: %w", err)
@@ -30,7 +30,7 @@ func (s *Store) Events(ctx context.Context, entityType, entityID string) ([]even
 	for rows.Next() {
 		var item event.Event
 		var occurred string
-		if err := rows.Scan(&item.Sequence, &item.EntityType, &item.EntityID, &item.Type, &occurred, &item.RequestID, &item.Message, &item.ErrorCode); err != nil {
+		if err := rows.Scan(&item.Sequence, &item.EntityType, &item.EntityID, &item.Type, &occurred, &item.RequestID, &item.Actor, &item.Message, &item.ErrorCode); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		item.OccurredAt, err = time.Parse(time.RFC3339Nano, occurred)
