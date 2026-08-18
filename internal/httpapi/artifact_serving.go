@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -101,5 +100,3 @@ func installationArtifact(items []artifact.Descriptor, name string) (artifact.De
 	}
 	return artifact.Descriptor{}, false
 }
-
-var _ = fmt.Sprintf
