@@ -13,7 +13,7 @@ Examples:
 - `PXE001_DISCOVERY_RATE_LIMITED`
 - `MAC001_MACHINE_IDENTITY_CONFLICT`
 - `ART002_ARTIFACT_HASH_MISMATCH`
-- `DRV001_DRIVER_RENDER_FAILED`
+- `DRV001_DRIVER_SPEC_UNSUPPORTED`
 - `INS001_INSTALLATION_SPEC_INVALID`
 - `INS003_INSTALLER_STAGE_FAILED`
 - `SEC002_INVALID_INSTALLATION_TOKEN`
@@ -51,6 +51,8 @@ Examples:
 | `ART001_ARTIFACT_TRUST_FAILED` | Signed release metadata, its trust anchor or a verified checksum manifest could not establish trusted artifact provenance. |
 | `ART002_ARTIFACT_HASH_MISMATCH` | Downloaded artifact content or an installer checksum manifest does not match its trusted SHA-256 identity. |
 | `ART003_ARTIFACT_FETCH_FAILED` | Required artifact or release metadata could not be fetched within the bounded transport contract. |
+| `DRV001_DRIVER_SPEC_UNSUPPORTED` | The pinned InstallationSpec requests state that the selected driver contract cannot implement without downgrade or reinterpretation. |
+| `DRV002_DRIVER_RENDER_FAILED` | A driver accepted the InstallationSpec but could not deterministically render the required native material. |
 | `INS001_INSTALLATION_SPEC_INVALID` | An InstallationSpec violates the immutable installation contract or attempts to supply server-owned identity metadata. |
 | `INS002_INSTALLATION_NOT_FOUND` | A requested InstallationSpec does not exist. |
 | `SYS001_STORAGE_FAILURE` | The persistent store could not complete an operation safely. |

@@ -2,7 +2,7 @@
 
 Profiles describe OS-neutral desired state. They do not contain installer syntax or arbitrary execution hooks.
 
-The concrete serialized schema will be versioned when implementation begins. These semantic boundaries are already normative.
+The concrete resolved snapshot schema begins at version `1`. These semantic boundaries are normative.
 
 ## Identity
 
@@ -26,6 +26,8 @@ May describe intent such as:
 - LVM intent,
 - encryption required/disabled,
 - TPM2 auto-unlock requested when supported.
+
+The InstallationSpec separately pins the concrete target disk selected for one provisioning attempt. A driver must not guess the destructive target from device enumeration order.
 
 The OS driver decides the native implementation. Unsupported combinations fail preflight.
 
@@ -64,6 +66,25 @@ A profile may require final assertions such as:
 
 Validation requirements affect `COMPLETED`: required checks must pass before completion.
 
+## Resolved ProfileSnapshot v1
+
+When an InstallationSpec is created, the selected immutable profile revision is resolved into a self-contained snapshot. Drivers render from this snapshot and never reread a mutable profile definition.
+
+Schema version `1` currently pins the values needed by the Debian 13 Standard vertical slice:
+
+- hostname,
+- locale,
+- keyboard layout,
+- timezone,
+- administrative username and full name,
+- one or more validated SSH public keys,
+- explicit passwordless-sudo intent,
+- requested package names.
+
+The snapshot is persisted inside the immutable InstallationSpec. Public keys are configuration material rather than secrets, but their values are still excluded from normal operational logs. Private keys and reusable passwords are never valid snapshot fields.
+
+Adding new semantic fields requires a schema-version compatibility decision. Existing InstallationSpecs are never silently reinterpreted using a newer snapshot schema.
+
 ## Forbidden profile content
 
 Profiles must not contain:
@@ -79,7 +100,7 @@ Profiles must not contain:
 
 ## Revisions
 
-Published profile revisions are immutable. Editing a profile creates a new revision. An InstallationSpec pins an exact revision.
+Published profile revisions are immutable. Editing a profile creates a new revision. An InstallationSpec pins an exact revision and its resolved ProfileSnapshot.
 
 ## Initial built-in intent
 

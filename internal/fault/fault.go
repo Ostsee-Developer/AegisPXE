@@ -11,6 +11,8 @@ const (
 	ArtifactTrustFailed     = "ART001_ARTIFACT_TRUST_FAILED"
 	ArtifactHashMismatch    = "ART002_ARTIFACT_HASH_MISMATCH"
 	ArtifactFetchFailed     = "ART003_ARTIFACT_FETCH_FAILED"
+	DriverSpecUnsupported   = "DRV001_DRIVER_SPEC_UNSUPPORTED"
+	DriverRenderFailed      = "DRV002_DRIVER_RENDER_FAILED"
 	InstallationSpecInvalid = "INS001_INSTALLATION_SPEC_INVALID"
 	InstallationNotFound    = "INS002_INSTALLATION_NOT_FOUND"
 	StorageFailure          = "SYS001_STORAGE_FAILURE"

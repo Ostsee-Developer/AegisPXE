@@ -1,10 +1,12 @@
 package debian13
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 
 	"github.com/Ostsee-Developer/AegisPXE/internal/installation"
+	"github.com/Ostsee-Developer/AegisPXE/internal/profile"
 )
 
 func TestRenderBootIsDeterministicAndSecretFree(t *testing.T) {
@@ -55,7 +57,16 @@ func TestValidateSpecRejectsDifferentDriverContractVersion(t *testing.T) {
 	}
 }
 
+func TestValidateSpecRejectsPasswordSSHForStandard(t *testing.T) {
+	spec := validInstallationSpec()
+	spec.Security.SSHPasswordAuthentication = true
+	if err := ValidateSpec(spec); err == nil {
+		t.Fatal("expected password SSH to be rejected by Debian Standard")
+	}
+}
+
 func validInstallationSpec() installation.Spec {
+	keyPayload := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 64)))
 	return installation.Spec{
 		ID:              "i_test",
 		MachineID:       "m_test",
@@ -65,6 +76,20 @@ func validInstallationSpec() installation.Spec {
 		Architecture:    debianArch,
 		ProfileID:       "standard",
 		ProfileRevision: "rev_standard_1",
+		Profile: profile.Snapshot{
+			SchemaVersion: profile.SchemaVersion,
+			Hostname:      "aegis-node",
+			Locale:        "de_DE.UTF-8",
+			Keyboard:      "de",
+			Timezone:      "Europe/Berlin",
+			Admin: profile.Admin{
+				Username:          "guardian",
+				FullName:          "Aegis Administrator",
+				AuthorizedSSHKeys: []string{"ssh-ed25519 " + keyPayload + " test"},
+				PasswordlessSudo:  true,
+			},
+			Packages: []string{"jq"},
+		},
 		Artifacts: []installation.Artifact{
 			{
 				ID:         "debian13-amd64-netboot-linux",
@@ -85,7 +110,7 @@ func validInstallationSpec() installation.Spec {
 				Provenance: "debian:trixie:release=13.6:installer=installer-1",
 			},
 		},
-		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
+		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		Security:              installation.Security{AutomaticSecurityUpdates: true},
 		LifecycleCredentialID: "cred_test",
 		CreatedBy:             "system:test",

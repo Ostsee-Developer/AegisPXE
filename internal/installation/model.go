@@ -3,17 +3,22 @@ package installation
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/Ostsee-Developer/AegisPXE/internal/artifact"
+	"github.com/Ostsee-Developer/AegisPXE/internal/profile"
 )
+
+var targetDiskPattern = regexp.MustCompile(`^/dev/(?:sd[a-z]|vd[a-z]|xvd[a-z]|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$`)
 
 type Artifact = artifact.Descriptor
 
 type Storage struct {
 	Mode       string
 	Filesystem string
+	TargetDisk string
 	Encrypted  bool
 	TPM2       bool
 }
@@ -33,6 +38,7 @@ type Spec struct {
 	Architecture          string
 	ProfileID             string
 	ProfileRevision       string
+	Profile               profile.Snapshot
 	Artifacts             []Artifact
 	Storage               Storage
 	Security              Security
@@ -63,6 +69,9 @@ func (s Spec) Validate() error {
 	if len(s.ProfileID) > 128 || len(s.ProfileRevision) > 128 || len(s.LifecycleCredentialID) > 128 || len(s.CreatedBy) > 128 {
 		return errors.New("installation metadata exceeds size limit")
 	}
+	if err := s.Profile.Validate(); err != nil {
+		return fmt.Errorf("invalid profile snapshot: %w", err)
+	}
 	if len(s.Artifacts) == 0 {
 		return errors.New("at least one verified artifact is required")
 	}
@@ -90,6 +99,9 @@ func (s Spec) Validate() error {
 	if len(s.Storage.Mode) > 64 || len(s.Storage.Filesystem) > 64 {
 		return errors.New("storage metadata exceeds size limit")
 	}
+	if !targetDiskPattern.MatchString(s.Storage.TargetDisk) {
+		return errors.New("storage target disk is invalid or refers to a partition")
+	}
 	if s.Storage.TPM2 && !s.Storage.Encrypted {
 		return errors.New("TPM2 enrollment requires encrypted storage")
 	}
@@ -98,6 +110,7 @@ func (s Spec) Validate() error {
 
 func (s Spec) Clone() Spec {
 	copy := s
+	copy.Profile = s.Profile.Clone()
 	copy.Artifacts = append([]Artifact(nil), s.Artifacts...)
 	return copy
 }

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/base64"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/installation"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
+	"github.com/Ostsee-Developer/AegisPXE/internal/profile"
 )
 
 func TestInstallationSpecRoundTripIsImmutableSnapshot(t *testing.T) {
@@ -22,13 +24,14 @@ func TestInstallationSpecRoundTripIsImmutableSnapshot(t *testing.T) {
 	input := installation.Spec{
 		MachineID:             machineRecord.ID,
 		DriverID:              "debian13",
-		DriverVersion:         "0.1.0-dev.1",
+		DriverVersion:         "1",
 		OSRelease:             "13",
 		Architecture:          "amd64",
 		ProfileID:             "standard",
 		ProfileRevision:       "rev_standard_1",
+		Profile:               installationProfile(),
 		Artifacts:             []installation.Artifact{installationArtifact("linux", "a"), installationArtifact("initrd.gz", "b")},
-		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
+		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		Security:              installation.Security{AutomaticSecurityUpdates: true},
 		LifecycleCredentialID: "cred_1",
 		CreatedBy:             "system:test",
@@ -38,13 +41,14 @@ func TestInstallationSpecRoundTripIsImmutableSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.Artifacts[0].Digest = digest("c")
+	input.Profile.Packages[0] = "curl"
 
 	loaded, err := store.InstallationSpec(ctx, created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Artifacts[0].Digest != digest("a") {
-		t.Fatalf("stored spec mutated through caller-owned slice: %+v", loaded.Artifacts)
+	if loaded.Artifacts[0].Digest != digest("a") || loaded.Profile.Packages[0] != "jq" {
+		t.Fatalf("stored spec mutated through caller-owned slices: %+v", loaded)
 	}
 	if loaded.ID == "" || loaded.CreatedAt.IsZero() || loaded.CreatedBy != "system:test" {
 		t.Fatalf("missing immutable creation metadata: %+v", loaded)
@@ -70,13 +74,14 @@ func TestInstallationSpecRejectsCallerAssignedIdentity(t *testing.T) {
 		ID:                    "i_caller",
 		MachineID:             machineRecord.ID,
 		DriverID:              "debian13",
-		DriverVersion:         "0.1.0-dev.1",
+		DriverVersion:         "1",
 		OSRelease:             "13",
 		Architecture:          "amd64",
 		ProfileID:             "standard",
 		ProfileRevision:       "rev_standard_1",
+		Profile:               installationProfile(),
 		Artifacts:             []installation.Artifact{installationArtifact("linux", "a")},
-		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
+		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		LifecycleCredentialID: "cred_1",
 		CreatedBy:             "system:test",
 	}
@@ -91,18 +96,37 @@ func TestInstallationSpecRequiresExistingMachine(t *testing.T) {
 	_, err := store.CreateInstallationSpec(context.Background(), installation.Spec{
 		MachineID:             "m_missing",
 		DriverID:              "debian13",
-		DriverVersion:         "0.1.0-dev.1",
+		DriverVersion:         "1",
 		OSRelease:             "13",
 		Architecture:          "amd64",
 		ProfileID:             "standard",
 		ProfileRevision:       "rev_standard_1",
+		Profile:               installationProfile(),
 		Artifacts:             []installation.Artifact{installationArtifact("linux", "a")},
-		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
+		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		LifecycleCredentialID: "cred_1",
 		CreatedBy:             "system:test",
 	}, "req_install")
 	if fault.Code(err) != fault.MachineNotFound {
 		t.Fatalf("missing-machine code=%q err=%v", fault.Code(err), err)
+	}
+}
+
+func installationProfile() profile.Snapshot {
+	payload := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 64)))
+	return profile.Snapshot{
+		SchemaVersion: profile.SchemaVersion,
+		Hostname:      "aegis-node",
+		Locale:        "de_DE.UTF-8",
+		Keyboard:      "de",
+		Timezone:      "Europe/Berlin",
+		Admin: profile.Admin{
+			Username:          "guardian",
+			FullName:          "Aegis Administrator",
+			AuthorizedSSHKeys: []string{"ssh-ed25519 " + payload + " test"},
+			PasswordlessSudo:  true,
+		},
+		Packages: []string{"jq"},
 	}
 }
 

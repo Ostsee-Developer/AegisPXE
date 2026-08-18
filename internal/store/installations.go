@@ -38,6 +38,10 @@ func (s *Store) CreateInstallationSpec(ctx context.Context, spec installation.Sp
 	spec.ID = id
 	spec.CreatedAt = s.now().UTC()
 
+	profileJSON, err := json.Marshal(spec.Profile)
+	if err != nil {
+		return installation.Spec{}, fault.New(fault.InstallationSpecInvalid, "could not serialize installation profile snapshot", err)
+	}
 	artifactsJSON, err := json.Marshal(spec.Artifacts)
 	if err != nil {
 		return installation.Spec{}, fault.New(fault.InstallationSpecInvalid, "could not serialize installation artifacts", err)
@@ -59,10 +63,10 @@ func (s *Store) CreateInstallationSpec(ctx context.Context, spec installation.Sp
 
 	_, err = tx.ExecContext(ctx, `INSERT INTO installation_specs(
 		id,machine_id,driver_id,driver_version,os_release,architecture,profile_id,profile_revision,
-		artifacts_json,storage_json,security_json,lifecycle_credential_id,created_at,created_by
-	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		profile_json,artifacts_json,storage_json,security_json,lifecycle_credential_id,created_at,created_by
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		spec.ID, spec.MachineID, spec.DriverID, spec.DriverVersion, spec.OSRelease, spec.Architecture,
-		spec.ProfileID, spec.ProfileRevision, string(artifactsJSON), string(storageJSON), string(securityJSON),
+		spec.ProfileID, spec.ProfileRevision, string(profileJSON), string(artifactsJSON), string(storageJSON), string(securityJSON),
 		spec.LifecycleCredentialID, spec.CreatedAt.Format(time.RFC3339Nano), spec.CreatedBy,
 	)
 	if err != nil {
@@ -83,24 +87,27 @@ func (s *Store) CreateInstallationSpec(ctx context.Context, spec installation.Sp
 		return installation.Spec{}, s.storageError("commit installation creation", err)
 	}
 
-	s.logger.InfoContext(ctx, "installation spec created", "component", "store.installation", "operation", "create", "request_id", requestID, "installation_id", spec.ID, "machine_id", spec.MachineID, "driver_id", spec.DriverID, "driver_version", spec.DriverVersion, "profile_id", spec.ProfileID, "profile_revision", spec.ProfileRevision, "actor", spec.CreatedBy)
+	s.logger.InfoContext(ctx, "installation spec created", "component", "store.installation", "operation", "create", "request_id", requestID, "installation_id", spec.ID, "machine_id", spec.MachineID, "driver_id", spec.DriverID, "driver_version", spec.DriverVersion, "profile_id", spec.ProfileID, "profile_revision", spec.ProfileRevision, "profile_schema_version", spec.Profile.SchemaVersion, "actor", spec.CreatedBy)
 	return spec.Clone(), nil
 }
 
 func (s *Store) InstallationSpec(ctx context.Context, id string) (installation.Spec, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id,machine_id,driver_id,driver_version,os_release,architecture,profile_id,profile_revision,
-		artifacts_json,storage_json,security_json,lifecycle_credential_id,created_at,created_by
+		profile_json,artifacts_json,storage_json,security_json,lifecycle_credential_id,created_at,created_by
 		FROM installation_specs WHERE id=?`, strings.TrimSpace(id))
 
 	var spec installation.Spec
-	var artifactsJSON, storageJSON, securityJSON, createdAt string
+	var profileJSON, artifactsJSON, storageJSON, securityJSON, createdAt string
 	if err := row.Scan(&spec.ID, &spec.MachineID, &spec.DriverID, &spec.DriverVersion, &spec.OSRelease, &spec.Architecture,
-		&spec.ProfileID, &spec.ProfileRevision, &artifactsJSON, &storageJSON, &securityJSON,
+		&spec.ProfileID, &spec.ProfileRevision, &profileJSON, &artifactsJSON, &storageJSON, &securityJSON,
 		&spec.LifecycleCredentialID, &createdAt, &spec.CreatedBy); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return installation.Spec{}, fault.New(fault.InstallationNotFound, "installation not found", err)
 		}
 		return installation.Spec{}, s.storageError("read installation spec", err)
+	}
+	if err := json.Unmarshal([]byte(profileJSON), &spec.Profile); err != nil {
+		return installation.Spec{}, s.storageError("decode installation profile snapshot", err)
 	}
 	if err := json.Unmarshal([]byte(artifactsJSON), &spec.Artifacts); err != nil {
 		return installation.Spec{}, s.storageError("decode installation artifacts", err)
