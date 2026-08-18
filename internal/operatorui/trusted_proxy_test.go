@@ -15,15 +15,14 @@ func TestTrustedProxyInjectsIdentityOnlyForConfiguredDirectPeer(t *testing.T) {
 	}
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	var got externalIdentity
+	var subject string
 	var gotIdentity bool
 	var gotTLS bool
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got, ok := externalIdentityFromRequest(r)
-		got = got
+		identity, ok := externalIdentityFromRequest(r)
 		gotIdentity = ok
 		if ok {
-			got = got
+			subject = identity.Subject
 		}
 		gotTLS = r.TLS != nil
 		w.WriteHeader(http.StatusNoContent)
@@ -36,8 +35,8 @@ func TestTrustedProxyInjectsIdentityOnlyForConfiguredDirectPeer(t *testing.T) {
 	trusted.Header.Set("X-Remote-User", "alice@example.test")
 	trustedRec := httptest.NewRecorder()
 	handler.ServeHTTP(trustedRec, trusted)
-	if trustedRec.Code != http.StatusNoContent || !gotIdentity || !gotTLS {
-		t.Fatalf("trusted identity status=%d identity=%v tls=%v", trustedRec.Code, gotIdentity, gotTLS)
+	if trustedRec.Code != http.StatusNoContent || !gotIdentity || !gotTLS || subject != "alice@example.test" {
+		t.Fatalf("trusted identity status=%d identity=%v tls=%v subject=%q", trustedRec.Code, gotIdentity, gotTLS, subject)
 	}
 	if len(trustedRec.Result().Cookies()) != 0 {
 		t.Fatal("trusted proxy identity unexpectedly created a dashboard session")
@@ -45,13 +44,14 @@ func TestTrustedProxyInjectsIdentityOnlyForConfiguredDirectPeer(t *testing.T) {
 
 	gotIdentity = false
 	gotTLS = false
+	subject = ""
 	spoofed := httptest.NewRequest(http.MethodGet, "http://dashboard.test/ui/", nil)
 	spoofed.RemoteAddr = "192.0.2.11:41000"
 	spoofed.Header.Set("X-Forwarded-Proto", "https")
 	spoofed.Header.Set("X-Remote-User", "admin")
 	spoofedRec := httptest.NewRecorder()
 	handler.ServeHTTP(spoofedRec, spoofed)
-	if gotIdentity || gotTLS {
+	if gotIdentity || gotTLS || subject != "" {
 		t.Fatal("untrusted peer forged the trusted proxy identity boundary")
 	}
 }
