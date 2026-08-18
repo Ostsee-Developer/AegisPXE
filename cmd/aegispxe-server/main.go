@@ -48,9 +48,10 @@ func main() {
 	defer state.Close()
 
 	app := httpapi.New(state, logger, version)
+	handler := httpapi.WithArtifactServing(app.Handler(), state, logger)
 	server := &http.Server{
 		Addr:              env("AEGISPXE_LISTEN", "127.0.0.1:8090"),
-		Handler:           app.Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
