@@ -139,8 +139,14 @@ func renderLateCommand(spec installation.Spec) (string, error) {
 		keyArgs = append(keyArgs, shellQuote(key))
 	}
 
+	logPath := "/target/var/log/aegispxe-installer.log"
 	commands := []string{
 		"set -e",
+		"install -d -m 0755 /target/var/log",
+		"AEGIS_LOG=" + shellQuote(logPath),
+		"AEGIS_RESULT=failure",
+		"trap 'rc=$?; printf \"component=aegispxe step=late_command result=%s rc=%s\\n\" \"$AEGIS_RESULT\" \"$rc\" >> \"$AEGIS_LOG\"' EXIT",
+		"printf '%s\\n' 'component=aegispxe step=late_command result=started' >> \"$AEGIS_LOG\"",
 		"in-target install -d -m 0700 -o " + username + " -g " + username + " /home/" + username + "/.ssh",
 		"printf '%s\\n' " + strings.Join(keyArgs, " ") + " > /target/home/" + username + "/.ssh/authorized_keys",
 		"in-target chown " + username + ":" + username + " /home/" + username + "/.ssh/authorized_keys",
@@ -148,14 +154,23 @@ func renderLateCommand(spec installation.Spec) (string, error) {
 		"in-target usermod -aG sudo " + username,
 		"printf '%s\\n' " + shellQuote(username+" ALL=(ALL:ALL) NOPASSWD: ALL") + " > /target/etc/sudoers.d/90-aegispxe-admin",
 		"chmod 0440 /target/etc/sudoers.d/90-aegispxe-admin",
+		"printf '%s\\n' 'component=aegispxe step=validate_sudoers result=started' >> \"$AEGIS_LOG\"",
 		"in-target visudo -cf /etc/sudoers.d/90-aegispxe-admin",
+		"printf '%s\\n' 'component=aegispxe step=validate_sudoers result=success' >> \"$AEGIS_LOG\"",
 		"mkdir -p /target/etc/ssh/sshd_config.d",
 		"printf '%s\\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' 'PermitEmptyPasswords no' 'PermitRootLogin no' 'PubkeyAuthentication yes' > /target/etc/ssh/sshd_config.d/90-aegispxe.conf",
 		"chmod 0644 /target/etc/ssh/sshd_config.d/90-aegispxe.conf",
 		"in-target usermod -p NP " + username,
+		"printf '%s\\n' 'component=aegispxe step=prepare_sshd_runtime result=started' >> \"$AEGIS_LOG\"",
+		"in-target install -d -m 0755 /run/sshd",
+		"in-target ssh-keygen -A",
+		"printf '%s\\n' 'component=aegispxe step=prepare_sshd_runtime result=success' >> \"$AEGIS_LOG\"",
+		"printf '%s\\n' 'component=aegispxe step=validate_sshd result=started' >> \"$AEGIS_LOG\"",
 		"in-target sshd -t",
+		"printf '%s\\n' 'component=aegispxe step=validate_sshd result=success' >> \"$AEGIS_LOG\"",
 		"printf '%s\\n' 'APT::Periodic::Update-Package-Lists \"1\";' 'APT::Periodic::Unattended-Upgrade \"1\";' > /target/etc/apt/apt.conf.d/20auto-upgrades",
 		"chmod 0644 /target/etc/apt/apt.conf.d/20auto-upgrades",
+		"AEGIS_RESULT=success",
 	}
 	return strings.Join(commands, "; "), nil
 }
