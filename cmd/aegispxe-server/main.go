@@ -16,6 +16,8 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/httpapi"
 	"github.com/Ostsee-Developer/AegisPXE/internal/observability"
+	"github.com/Ostsee-Developer/AegisPXE/internal/operator"
+	"github.com/Ostsee-Developer/AegisPXE/internal/operatorui"
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
 )
 
@@ -47,10 +49,17 @@ func main() {
 	}
 	defer state.Close()
 
+	operatorAuth, err := operator.LoadOrCreate(env("AEGISPXE_OPERATOR_KEY", "/var/lib/aegispxe/operator.key"), logger)
+	if err != nil {
+		logger.Error("startup failed", "component", "operator.auth", "operation", "bootstrap_key", "error_code", fault.StorageFailure, "error", err)
+		os.Exit(1)
+	}
+
 	app := httpapi.New(state, logger, version)
+	handler := operatorui.New(app.Handler(), state, operatorAuth, logger)
 	server := &http.Server{
 		Addr:              env("AEGISPXE_LISTEN", "127.0.0.1:8090"),
-		Handler:           app.Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
