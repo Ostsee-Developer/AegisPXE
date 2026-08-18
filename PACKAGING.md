@@ -24,6 +24,26 @@ Release tags, package metadata, artifact names and embedded binary versions must
 
 Changing the project version therefore requires changing only `VERSION`; CI and release gates verify that generated artifacts agree with it.
 
+The accepted release format is `MAJOR.MINOR.PATCH` with an optional SemVer-style prerelease suffix, for example:
+
+- `0.0.3-dev.1`
+- `0.5.0-beta.2`
+- `0.9.0-rc.1`
+- `1.0.0`
+
+Versions carrying a prerelease suffix are published as GitHub prereleases. A plain `MAJOR.MINOR.PATCH` version is published as a stable GitHub release.
+
+## Unattended release contract
+
+Every push to `main` runs the release workflow. The workflow reads `VERSION` and compares it using SemVer precedence against published AegisPXE releases.
+
+- If `VERSION` is already published, the release job exits successfully without producing another release.
+- If `VERSION` is lower than the highest published version, the release job fails closed to prevent accidental downgrades.
+- If `VERSION` is higher, all release gates and package builds must succeed before the workflow creates or verifies the matching `v<VERSION>` tag and publishes the release.
+- If a previous run created the tag but failed before publishing the release, a later run may resume only when that tag still points at the current `main` commit.
+
+This makes changing `VERSION` and pushing to `main` the only required release operation. Manual tag creation is not part of the normal release path.
+
 ## Required package responsibilities
 
 The package owns installation and upgrade of AegisPXE application files, including:
