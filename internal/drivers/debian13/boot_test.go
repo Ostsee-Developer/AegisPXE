@@ -57,14 +57,14 @@ func TestValidateSpecRejectsDifferentDriverContractVersion(t *testing.T) {
 
 func validInstallationSpec() installation.Spec {
 	return installation.Spec{
-		ID:                    "i_test",
-		MachineID:             "m_test",
-		DriverID:              DriverID,
-		DriverVersion:         DriverVersion,
-		OSRelease:             "13",
-		Architecture:          debianArch,
-		ProfileID:             "standard",
-		ProfileRevision:       "rev_standard_1",
+		ID:              "i_test",
+		MachineID:       "m_test",
+		DriverID:        DriverID,
+		DriverVersion:   DriverVersion,
+		OSRelease:       "13",
+		Architecture:    debianArch,
+		ProfileID:       "standard",
+		ProfileRevision: "rev_standard_1",
 		Artifacts: []installation.Artifact{
 			{
 				ID:         "debian13-amd64-netboot-linux",
