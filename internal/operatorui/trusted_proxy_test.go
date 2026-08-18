@@ -6,57 +6,57 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/Ostsee-Developer/AegisPXE/internal/operator"
 )
 
-func TestTrustedProxyIssuesSessionOnlyForConfiguredDirectPeer(t *testing.T) {
+func TestTrustedProxyInjectsIdentityOnlyForConfiguredDirectPeer(t *testing.T) {
 	proxy, err := ParseTrustedProxy("192.0.2.10/32", "X-Remote-User", "X-Forwarded-Proto")
-	if err != nil {
-		t.Fatal(err)
-	}
-	key, err := operator.GenerateKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	auth, err := operator.New(key, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var got externalIdentity
+	var gotIdentity bool
+	var gotTLS bool
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, ok := externalIdentityFromRequest(r)
+		got = got
+		gotIdentity = ok
+		if ok {
+			got = got
+		}
+		gotTLS = r.TLS != nil
 		w.WriteHeader(http.StatusNoContent)
 	})
-	handler := NewWithTrustedProxy(next, nil, auth, logger, proxy)
+	handler := &trustedProxyIdentityHandler{next: next, logger: logger, proxy: proxy}
 
-	trusted := httptest.NewRequest(http.MethodGet, "http://studio.test/ui/status", nil)
+	trusted := httptest.NewRequest(http.MethodGet, "http://dashboard.test/ui/", nil)
 	trusted.RemoteAddr = "192.0.2.10:41000"
 	trusted.Header.Set("X-Forwarded-Proto", "https")
 	trusted.Header.Set("X-Remote-User", "alice@example.test")
 	trustedRec := httptest.NewRecorder()
 	handler.ServeHTTP(trustedRec, trusted)
-	cookies := trustedRec.Result().Cookies()
-	if trustedRec.Code != http.StatusNoContent || len(cookies) != 1 {
-		t.Fatalf("trusted request status=%d cookies=%d", trustedRec.Code, len(cookies))
+	if trustedRec.Code != http.StatusNoContent || !gotIdentity || !gotTLS {
+		t.Fatalf("trusted identity status=%d identity=%v tls=%v", trustedRec.Code, gotIdentity, gotTLS)
 	}
-	session, ok := auth.Session(cookies[0].Value)
-	if !ok || session.Actor != "proxy:alice@example.test" {
-		t.Fatalf("trusted proxy actor=%q ok=%v", session.Actor, ok)
+	if len(trustedRec.Result().Cookies()) != 0 {
+		t.Fatal("trusted proxy identity unexpectedly created a dashboard session")
 	}
 
-	spoofed := httptest.NewRequest(http.MethodGet, "http://studio.test/ui/status", nil)
+	gotIdentity = false
+	gotTLS = false
+	spoofed := httptest.NewRequest(http.MethodGet, "http://dashboard.test/ui/", nil)
 	spoofed.RemoteAddr = "192.0.2.11:41000"
 	spoofed.Header.Set("X-Forwarded-Proto", "https")
 	spoofed.Header.Set("X-Remote-User", "admin")
 	spoofedRec := httptest.NewRecorder()
 	handler.ServeHTTP(spoofedRec, spoofed)
-	if len(spoofedRec.Result().Cookies()) != 0 {
-		t.Fatal("untrusted peer forged proxy headers and received an operator session")
+	if gotIdentity || gotTLS {
+		t.Fatal("untrusted peer forged the trusted proxy identity boundary")
 	}
 }
 
-func TestTrustedProxyGateAllowsOnlyLoopbackOrAuthenticatedProxy(t *testing.T) {
+func TestTrustedProxyGateAllowsLoopbackOrSecureProxySourceWithoutIdentity(t *testing.T) {
 	proxy, err := ParseTrustedProxy("192.0.2.10", "X-Remote-User", "X-Forwarded-Proto")
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestTrustedProxyGateAllowsOnlyLoopbackOrAuthenticatedProxy(t *testing.T) {
 	})
 	handler := RequireTrustedProxyOrLoopback(next, proxy, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 
-	loopback := httptest.NewRequest(http.MethodGet, "http://studio.test/ui/operator/", nil)
+	loopback := httptest.NewRequest(http.MethodGet, "http://dashboard.test/healthz", nil)
 	loopback.RemoteAddr = "127.0.0.1:42000"
 	loopbackRec := httptest.NewRecorder()
 	handler.ServeHTTP(loopbackRec, loopback)
@@ -74,17 +74,16 @@ func TestTrustedProxyGateAllowsOnlyLoopbackOrAuthenticatedProxy(t *testing.T) {
 		t.Fatalf("loopback status=%d", loopbackRec.Code)
 	}
 
-	trusted := httptest.NewRequest(http.MethodGet, "http://studio.test/ui/operator/", nil)
+	trusted := httptest.NewRequest(http.MethodGet, "http://dashboard.test/healthz", nil)
 	trusted.RemoteAddr = "192.0.2.10:42000"
 	trusted.Header.Set("X-Forwarded-Proto", "https")
-	trusted.Header.Set("X-Remote-User", "alice")
 	trustedRec := httptest.NewRecorder()
 	handler.ServeHTTP(trustedRec, trusted)
 	if trustedRec.Code != http.StatusNoContent {
-		t.Fatalf("trusted proxy status=%d", trustedRec.Code)
+		t.Fatalf("trusted proxy health source status=%d", trustedRec.Code)
 	}
 
-	direct := httptest.NewRequest(http.MethodGet, "http://studio.test/ui/operator/", nil)
+	direct := httptest.NewRequest(http.MethodGet, "http://dashboard.test/ui/", nil)
 	direct.RemoteAddr = "192.0.2.11:42000"
 	direct.Header.Set("X-Forwarded-Proto", "https")
 	direct.Header.Set("X-Remote-User", "admin")
