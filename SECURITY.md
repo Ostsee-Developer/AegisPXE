@@ -13,7 +13,8 @@ Primary boundaries:
 - AegisPXE to upstream artifact sources,
 - AegisPXE to local secret storage.
 
-A MAC address or SMBIOS UUID is an identifier, not an authentication factor.
+A MAC address is an identifier, not an authentication factor.
+An SMBIOS UUID is likewise an identifier and must not be used as an authentication factor.
 
 ## Provisioning trust layers
 
