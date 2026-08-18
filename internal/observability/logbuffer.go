@@ -34,12 +34,12 @@ func (b *LogBuffer) Write(p []byte) (int, error) {
 		if idx < 0 {
 			break
 		}
-		line := bytes.TrimSpace(b.pending[:idx])
+		line := append([]byte(nil), bytes.TrimSpace(b.pending[:idx])...)
 		b.pending = append(b.pending[:0], b.pending[idx+1:]...)
 		if len(line) == 0 {
 			continue
 		}
-		b.appendLocked(string(append([]byte(nil), line...)))
+		b.appendLocked(string(line))
 	}
 	return len(p), nil
 }
