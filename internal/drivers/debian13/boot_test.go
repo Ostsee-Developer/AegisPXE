@@ -57,6 +57,14 @@ func TestValidateSpecRejectsDifferentDriverContractVersion(t *testing.T) {
 	}
 }
 
+func TestValidateSpecRejectsPasswordSSHForStandard(t *testing.T) {
+	spec := validInstallationSpec()
+	spec.Security.SSHPasswordAuthentication = true
+	if err := ValidateSpec(spec); err == nil {
+		t.Fatal("expected password SSH to be rejected by Debian Standard")
+	}
+}
+
 func validInstallationSpec() installation.Spec {
 	keyPayload := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 64)))
 	return installation.Spec{
@@ -78,6 +86,7 @@ func validInstallationSpec() installation.Spec {
 				Username:          "guardian",
 				FullName:          "Aegis Administrator",
 				AuthorizedSSHKeys: []string{"ssh-ed25519 " + keyPayload + " test"},
+				PasswordlessSudo:  true,
 			},
 			Packages: []string{"jq"},
 		},
