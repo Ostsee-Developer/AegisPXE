@@ -56,15 +56,21 @@ Development now targets **Debian 13 Standard**. `0.1.0-dev.1` introduced the imm
 
 `0.1.0-dev.7` introduced the minimum authenticated operator boundary needed to prepare real provisioning without database-side shortcuts. AegisPXE creates a local 256-bit bootstrap operator key, exchanges it over an accepted secure transport for an 8-hour server-side session, requires per-session CSRF on mutations and rate-limits login attempts. Bootstrap keys, session tokens and CSRF values are excluded from logs. Cleartext non-loopback HTTP remains read-only.
 
-`0.1.0-dev.8` turns that boundary into a usable Operator Console. The public PXE/Studio listener remains read-only for administrative mutations, while a second fail-closed loopback listener defaults to `127.0.0.1:8091` for local or SSH-tunnel administration. The authenticated Console exposes Machine policy, Installation arm/cancel controls and the first Debian 13 Standard InstallationSpec wizard.
+`0.1.0-dev.8` turns that boundary into a usable Operator Console. A second fail-closed loopback listener defaults to `127.0.0.1:8091` for local or SSH-tunnel administration. The authenticated Console exposes Machine policy, Installation arm/cancel controls and the first Debian 13 Standard InstallationSpec wizard.
 
 The wizard is deliberately narrower than the InstallationSpec model. The operator supplies desired profile values and an explicit whole-device target disk; AegisPXE owns the Debian driver contract, security baseline, artifact source, installer version, provenance and hashes. Input validation happens before network artifact resolution, then the normal signed Debian trust chain verifies kernel/initrd metadata before their descriptors are frozen into the immutable spec. Creation and arming remain separate actions so the resulting spec can be reviewed before the next PXE boot becomes destructive.
 
+`0.1.0-dev.9` separates the network surfaces instead of treating PXE and Studio as one listener. The package PXE default is network reachable on port 8090 and only exposes health, discovery and `/boot/` transport. Studio has a separate listener and path allowlist. Non-loopback Studio binding requires an explicit Trusted Proxy boundary, allowing a reverse proxy/SSO layer to perform TLS and Passkey authentication while AegisPXE still issues its own short-lived session and CSRF token.
+
+Trusted proxy identity is accepted only from configured direct proxy CIDRs and only with the configured HTTPS protocol and identity headers. Header names are configurable, ordinary LAN clients cannot forge proxy authority, and no public Studio hostname or DNS origin is compiled into AegisPXE. The local bootstrap key remains a loopback recovery path.
+
+The same dev.9 slice hardens the first real Debian E2E finish path. The security-sensitive Preseed late hook remains fail-closed but now writes `/var/log/aegispxe-installer.log`, records validation step markers/final exit status, prepares `/run/sshd`, ensures host keys and then runs `sshd -t`. Debian's native `finish-install/reboot_in_progress` remains responsible for unattended completion rather than hiding hook failures with forced success.
+
 All public boot reads remain retryable and non-consuming. Discovery, boot-script rendering, kernel/initrd reads and Preseed reads do not emit `INSTALLER_STARTED`, consume the Assignment or release lifecycle credentials. Those operations remain behind authenticated installer telemetry and cryptographic boot trust.
 
-Public Studio continues to expose read-only Machine and Installation views with immutable InstallationSpec details, resolved ProfileSnapshot, verified artifact provenance, target disk/security intent, assignment state and explicit trust gates. SSH public-key payloads and lifecycle credential metadata are not rendered.
+Studio exposes Machine and Installation views with immutable InstallationSpec details, resolved ProfileSnapshot, verified artifact provenance, target disk/security intent, assignment state and explicit trust gates. SSH public-key payloads and lifecycle credential metadata are not rendered.
 
-See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md), [`docs/0.1.0-artifact-verification.md`](docs/0.1.0-artifact-verification.md), [`docs/0.1.0-boot-spec.md`](docs/0.1.0-boot-spec.md), [`docs/0.1.0-debian-preseed.md`](docs/0.1.0-debian-preseed.md), [`docs/0.1.0-trust-assignment.md`](docs/0.1.0-trust-assignment.md), [`docs/0.1.0-operator-auth.md`](docs/0.1.0-operator-auth.md) and [`docs/0.1.0-operator-console.md`](docs/0.1.0-operator-console.md).
+See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md), [`docs/0.1.0-artifact-verification.md`](docs/0.1.0-artifact-verification.md), [`docs/0.1.0-boot-spec.md`](docs/0.1.0-boot-spec.md), [`docs/0.1.0-debian-preseed.md`](docs/0.1.0-debian-preseed.md), [`docs/0.1.0-trust-assignment.md`](docs/0.1.0-trust-assignment.md), [`docs/0.1.0-operator-auth.md`](docs/0.1.0-operator-auth.md), [`docs/0.1.0-operator-console.md`](docs/0.1.0-operator-console.md) and [`docs/adr/0004-studio-trusted-proxy.md`](docs/adr/0004-studio-trusted-proxy.md).
 
 ## Project constitution
 
@@ -91,4 +97,4 @@ The Project Constitution workflow verifies that foundational contracts remain pr
 
 **0.1.0: Debian 13 Standard.**
 
-The current development step is the authenticated Operator Console and immutable Debian Standard InstallationSpec wizard. The next hard trust boundary is cryptographic boot trust plus authenticated installer lifecycle telemetry so a real installer can truthfully report `INSTALLER_STARTED`, later stages, logs and terminal success/failure without treating MAC/SMBIOS identity as authentication.
+The current development step is the real unattended Debian Standard E2E through the separated PXE/Studio surfaces. Once the late-hook/finish path is proven repeatable, the next hard trust boundary is cryptographic boot trust plus authenticated installer lifecycle telemetry so a real installer can truthfully report `INSTALLER_STARTED`, later stages, logs and terminal success/failure without treating MAC/SMBIOS identity or reverse-proxy operator identity as installer authentication.

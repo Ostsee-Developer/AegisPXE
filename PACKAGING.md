@@ -63,7 +63,29 @@ The package owns installation and upgrade of AegisPXE application files, includi
 
 Starting with the 0.0.3 discovery slice, the package also owns the availability of its stage-1 PXE runtime dependencies. When `tftpd-hpa` already defines a safe absolute `TFTP_DIRECTORY`, package configuration may materialize AegisPXE's iPXE stage-1 files into that root. It must not replace an existing file whose content differs from the packaged iPXE asset. See [`docs/PXE_RUNTIME.md`](docs/PXE_RUNTIME.md).
 
-The package must not silently choose network topology, DHCP ranges, interface bindings, router credentials, installation profiles or machine policy.
+The package must not silently choose DHCP ranges, router credentials, installation profiles, machine policy or privileged administrative exposure.
+
+## Listener defaults
+
+PXE and browser administration have different functional/security requirements and therefore different package defaults.
+
+The PXE HTTP surface must be reachable by firmware/iPXE clients. From `0.1.0-dev.9` its documented package default is:
+
+```text
+AEGISPXE_PXE_LISTEN=0.0.0.0:8090
+```
+
+This wildcard exception is allowed only because the listener is path-restricted to low-privilege health/discovery/boot transport. It must not expose Studio or operator mutation routes. Administrators should still scope the port to the provisioning network with host/network firewall policy where appropriate.
+
+The Studio default remains loopback:
+
+```text
+AEGISPXE_STUDIO_LISTEN=127.0.0.1:8091
+```
+
+A non-loopback Studio bind requires explicit trusted reverse-proxy configuration and remains subject to the application-level trusted-proxy gate. The package must never silently convert the Studio/admin surface to wildcard exposure.
+
+Legacy `AEGISPXE_LISTEN` and `AEGISPXE_OPERATOR_LISTEN` values remain compatibility fallbacks so an upgrade does not discard an administrator's existing listener choices.
 
 ## Filesystem contract
 
@@ -80,9 +102,11 @@ Secrets must never be installed as package payload defaults.
 
 ## Service behavior
 
-Package installation may install and register systemd units. A service may start automatically only when its default configuration is safe and cannot unintentionally expose provisioning material or bind an administrator-selected production interface.
+Package installation may install and register systemd units. A service may start automatically only when its default configuration is safe for the privilege of each surface.
 
-If required configuration is missing, the service should fail closed with a precise status and structured diagnostic rather than guessing values.
+The documented network-reachable PXE default is permitted because only the low-privilege PXE route allowlist is present there. Administrative routes remain on the separate loopback/trusted-proxy Studio surface.
+
+If required privileged configuration is missing or inconsistent, the service should fail closed with a precise status and structured diagnostic rather than guessing values.
 
 Uninstalling the package must not silently destroy persistent state. Purge semantics, once implemented, must be documented separately and require an explicit administrator action.
 

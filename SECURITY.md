@@ -9,6 +9,7 @@ Primary boundaries:
 - firmware/PXE client to AegisPXE boot service,
 - installer to AegisPXE API,
 - browser/CLI administrator to AegisPXE server,
+- trusted reverse proxy/SSO to the AegisPXE Studio listener,
 - unprivileged server/worker to privileged helper,
 - AegisPXE to upstream artifact sources,
 - AegisPXE to local secret storage.
@@ -124,15 +125,34 @@ The first Debian vertical path uses a deliberately narrow bootstrap operator mec
 - AegisPXE generates a random 256-bit bootstrap operator key under `/var/lib/aegispxe/operator.key` by default.
 - The key file is a regular file with no group/other access; symlinks and unsafe existing permissions are rejected.
 - The key value is not logged and is exchanged for a short-lived server-side session rather than stored in browser storage.
-- Session cookies are HttpOnly and SameSite=Strict. TLS sessions additionally use the Secure attribute.
+- Session cookies are HttpOnly and SameSite=Strict. HTTPS/trusted-proxy sessions use the Secure attribute.
 - Every browser mutation requires a CSRF value bound to the server-side session.
 - Login attempts are rate limited.
-- Operator login and mutations are refused on cleartext non-loopback network HTTP.
-- Proxy headers such as `X-Forwarded-Proto` are not trusted as transport proof in this initial contract.
+- Direct bootstrap login and mutations are refused on cleartext non-loopback network HTTP.
 
 The bootstrap operator may perform only the explicitly exposed provisioning mutations required by the current milestone. It does not satisfy cryptographic Machine/installer trust and does not authorize release of lifecycle credentials or recovery material merely by existing.
 
-A future authenticated Studio with users, passkeys and RBAC may replace this bootstrap login while preserving the same audited domain mutation boundaries.
+The bootstrap key remains a local/recovery path when a separately authenticated reverse proxy is used for normal Studio access.
+
+### Trusted reverse-proxy Studio boundary
+
+AegisPXE may accept a human operator identity asserted by an explicitly configured reverse proxy/SSO boundary. This does not make arbitrary proxy headers trusted.
+
+The trust decision requires all of the following:
+
+- the **direct TCP peer address** is contained in configured `AEGISPXE_TRUSTED_PROXY_CIDRS`,
+- the configured protocol header has the exact value `https`,
+- the configured identity header contains a bounded non-empty identity.
+
+The identity and protocol header names are deployment configuration. The reverse proxy must overwrite or remove client-supplied instances of these headers before forwarding.
+
+A request outside the configured proxy network cannot gain operator authority by forging the same headers. When Trusted Proxy mode is enabled, the Studio backend accepts only loopback recovery traffic or a request satisfying this trusted-proxy contract.
+
+A trusted proxy identity is exchanged for the same short-lived server-side AegisPXE operator session and CSRF contract as other browser administration. Audit actors are recorded as `proxy:<identity>`. AegisPXE does not need to store the reverse proxy's Passkey/WebAuthn credentials.
+
+Reverse-proxy operator trust is **human administrative authentication only**. It does not satisfy cryptographic boot trust, authenticate an installer, or release lifecycle credentials. Installer endpoints may later share an external DNS origin with Studio only when those paths use their own installation-scoped cryptographic authorization.
+
+No external Studio hostname or public origin is compiled into the application. See `docs/adr/0004-studio-trusted-proxy.md`.
 
 ## Input validation
 
@@ -146,7 +166,7 @@ Security decisions must be logged without logging secrets. See `OBSERVABILITY.md
 
 Authentication failures, authorization failures, invalid lifecycle events, replay attempts, assignment conflicts and artifact integrity failures require structured security logs with stable error codes.
 
-Bootstrap operator logs may contain request ID, remote address, actor after authentication, decision result and a non-secret cause class. They must never contain the bootstrap key, session cookie or CSRF value.
+Bootstrap/trusted-proxy operator logs may contain request ID, direct remote address, actor after authentication, decision result and a non-secret cause class. They must never contain the bootstrap key, session cookie or CSRF value.
 
 ## Replay and sequencing
 

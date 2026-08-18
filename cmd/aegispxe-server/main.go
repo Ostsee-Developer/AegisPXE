@@ -28,6 +28,11 @@ var version = "dev"
 
 const serverWriteTimeout = 10 * time.Minute
 
+type namedHTTPServer struct {
+	name   string
+	server *http.Server
+}
+
 func main() {
 	showVersion := flag.Bool("version", false, "print version")
 	flag.Parse()
@@ -58,14 +63,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	operatorAddress := env("AEGISPXE_OPERATOR_LISTEN", "127.0.0.1:8091")
-	if !strings.EqualFold(operatorAddress, "disabled") {
-		if err := validateOperatorListen(operatorAddress); err != nil {
+	proxyTrust, err := operatorui.ParseTrustedProxy(
+		env("AEGISPXE_TRUSTED_PROXY_CIDRS", ""),
+		env("AEGISPXE_TRUSTED_PROXY_IDENTITY_HEADER", "X-Remote-User"),
+		env("AEGISPXE_TRUSTED_PROXY_PROTO_HEADER", "X-Forwarded-Proto"),
+	)
+	if err != nil {
+		logger.Error("startup failed", "component", "operator.proxy", "operation", "configuration", "error_code", fault.OperatorSecureTransportRequired, "error", err)
+		os.Exit(1)
+	}
+
+	pxeAddress := envFirst("0.0.0.0:8090", "AEGISPXE_PXE_LISTEN", "AEGISPXE_LISTEN")
+	studioAddress := envFirst("127.0.0.1:8091", "AEGISPXE_STUDIO_LISTEN", "AEGISPXE_OPERATOR_LISTEN")
+	if !strings.EqualFold(studioAddress, "disabled") {
+		if err := validateStudioListen(studioAddress, proxyTrust.Enabled()); err != nil {
 			logger.Error("startup failed",
 				"component", "operator.http",
 				"operation", "listen_validation",
 				"error_code", fault.OperatorSecureTransportRequired,
-				"address", operatorAddress,
+				"address", studioAddress,
+				"trusted_proxy_enabled", proxyTrust.Enabled(),
 				"error", err,
 			)
 			os.Exit(1)
@@ -73,34 +90,39 @@ func main() {
 	}
 
 	app := httpapi.New(state, logger, version)
-	handler := operatorui.New(app.Handler(), state, operatorAuth, logger)
-	publicServer := newHTTPServer(env("AEGISPXE_LISTEN", "127.0.0.1:8090"), handler)
-	servers := []*http.Server{publicServer}
-	listeners := []string{"public"}
-	if !strings.EqualFold(operatorAddress, "disabled") {
-		servers = append(servers, newHTTPServer(operatorAddress, handler))
-		listeners = append(listeners, "operator")
+	servers := []namedHTTPServer{{
+		name:   "pxe",
+		server: newHTTPServer(pxeAddress, pxeSurface(app.Handler())),
+	}}
+	if !strings.EqualFold(studioAddress, "disabled") {
+		studioHandler := operatorui.NewWithTrustedProxy(app.Handler(), state, operatorAuth, logger, proxyTrust)
+		studioHandler = studioSurface(studioHandler)
+		studioHandler = operatorui.RequireTrustedProxyOrLoopback(studioHandler, proxyTrust, logger)
+		servers = append(servers, namedHTTPServer{
+			name:   "studio",
+			server: newHTTPServer(studioAddress, studioHandler),
+		})
 	}
 
 	errCh := make(chan error, len(servers))
-	for index, server := range servers {
-		server := server
-		listener := listeners[index]
+	for _, item := range servers {
+		item := item
 		logger.Info("AegisPXE server starting",
 			"component", "server",
 			"operation", "listen",
 			"version", version,
-			"listener", listener,
-			"address", server.Addr,
+			"listener", item.name,
+			"address", item.server.Addr,
+			"trusted_proxy_enabled", item.name == "studio" && proxyTrust.Enabled(),
 			"write_timeout_ms", serverWriteTimeout.Milliseconds(),
 		)
 		go func() {
-			err := server.ListenAndServe()
+			err := item.server.ListenAndServe()
 			if errors.Is(err, http.ErrServerClosed) {
 				err = nil
 			}
 			if err != nil {
-				err = fmt.Errorf("%s listener: %w", listener, err)
+				err = fmt.Errorf("%s listener: %w", item.name, err)
 			}
 			errCh <- err
 		}()
@@ -118,9 +140,9 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	for index, server := range servers {
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			logger.Error("shutdown failed", "component", "server", "operation", "shutdown", "listener", listeners[index], "error", err)
+	for _, item := range servers {
+		if err := item.server.Shutdown(shutdownCtx); err != nil {
+			logger.Error("shutdown failed", "component", "server", "operation", "shutdown", "listener", item.name, "error", err)
 		}
 	}
 	if serveErr != nil {
@@ -140,16 +162,54 @@ func newHTTPServer(address string, handler http.Handler) *http.Server {
 	}
 }
 
-func validateOperatorListen(address string) error {
+func pxeSurface(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/healthz" || strings.HasPrefix(path, "/boot/") || path == "/api/v1/discovery" || path == "/api/v1/discovery.ipxe" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})
+}
+
+func studioSurface(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/" || path == "/ui/" {
+			http.Redirect(w, r, "/ui/operator/", http.StatusTemporaryRedirect)
+			return
+		}
+		if path == "/healthz" || strings.HasPrefix(path, "/ui/") || path == "/api/v1/machines" || strings.HasPrefix(path, "/api/v1/machines/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})
+}
+
+func validateStudioListen(address string, trustedProxyEnabled bool) error {
 	host, port, err := net.SplitHostPort(strings.TrimSpace(address))
 	if err != nil || port == "" {
-		return errors.New("operator listener must be a host:port address")
+		return errors.New("studio listener must be a host:port address")
 	}
 	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() {
-		return errors.New("operator listener must use a loopback IP address")
+	if ip == nil {
+		return errors.New("studio listener must use an IP literal")
+	}
+	if !ip.IsLoopback() && !trustedProxyEnabled {
+		return errors.New("non-loopback studio listener requires trusted proxy configuration")
 	}
 	return nil
+}
+
+func envFirst(fallback string, names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return fallback
 }
 
 func env(name, fallback string) string {
