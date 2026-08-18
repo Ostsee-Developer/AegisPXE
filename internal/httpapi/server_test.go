@@ -28,8 +28,7 @@ func TestRepeatedDiscoveryKeepsOnePendingMachine(t *testing.T) {
 	}
 
 	for i := 0; i < 20; i++ {
-		req := httptest.NewRequest(http.MethodPost, "http://aegispxe.test/api/v1/discovery.ipxe", strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req := httptest.NewRequest(http.MethodGet, "http://aegispxe.test/api/v1/discovery.ipxe?"+form.Encode(), nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -138,7 +137,7 @@ func TestDiscoveryRateLimitIsBounded(t *testing.T) {
 	}
 }
 
-func TestBootstrapUsesIPXEPOSTParameters(t *testing.T) {
+func TestBootstrapUsesStockIPXEQueryParameters(t *testing.T) {
 	_, handler := testServer(t)
 	req := httptest.NewRequest(http.MethodGet, "http://192.0.2.10:8090/boot/discovery.ipxe", nil)
 	rec := httptest.NewRecorder()
@@ -149,16 +148,14 @@ func TestBootstrapUsesIPXEPOSTParameters(t *testing.T) {
 	body := rec.Body.String()
 	for _, expected := range []string{
 		"#!ipxe",
-		"params",
-		"param mac ${net0/mac}",
-		"param smbios_uuid ${uuid}",
-		"param architecture ${buildarch}",
-		"param firmware ${platform}",
-		"chain http://192.0.2.10:8090/api/v1/discovery.ipxe##params || goto discovery_failed\nexit 0\n:discovery_failed",
+		"chain http://192.0.2.10:8090/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid:uristring}&architecture=${buildarch:uristring}&firmware=${platform:uristring} || goto discovery_failed\nexit 0\n:discovery_failed",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("bootstrap missing %q: %s", expected, body)
 		}
+	}
+	if strings.Contains(body, "\nparams\n") || strings.Contains(body, "\nparam ") || strings.Contains(body, "##params") {
+		t.Fatalf("bootstrap unexpectedly requires PARAM_CMD: %s", body)
 	}
 }
 
