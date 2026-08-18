@@ -32,6 +32,8 @@ jobs:
             AGENTS.md
             docs/PROFILE_SCHEMA.md
             docs/ERROR_CODES.md
+            docs/MACHINE_DISCOVERY.md
+            docs/ROADMAP.md
             docs/adr/0001-headless-provisioning-core.md
             docs/adr/0002-event-sourced-installation-status.md
           )
@@ -52,6 +54,7 @@ jobs:
           grep -Fq "Every operational I/O path must emit structured logs" OBSERVABILITY.md
           grep -Fq "A MAC address is an identifier, not an authentication factor" SECURITY.md
           grep -Fq "A driver without telemetry or validation is incomplete" DRIVER_CONTRACT.md
+          grep -Fq "Machine discovery is the first technical vertical slice" docs/MACHINE_DISCOVERY.md
 
       - name: Forbid accidental interactive-menu contract in core architecture
         shell: bash
