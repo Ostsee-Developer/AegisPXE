@@ -1,11 +1,18 @@
 package operatorui
 
 import (
+	"crypto/tls"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
 	"strings"
+
+	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
+	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
+	"github.com/Ostsee-Developer/AegisPXE/internal/operator"
+	"github.com/Ostsee-Developer/AegisPXE/internal/store"
 )
 
 type TrustedProxy struct {
@@ -79,6 +86,123 @@ func (p TrustedProxy) Identity(r *http.Request) (string, bool) {
 		}
 	}
 	return identity, true
+}
+
+func NewWithTrustedProxy(next http.Handler, state *store.Store, auth *operator.Manager, logger *slog.Logger, proxy TrustedProxy) http.Handler {
+	base := New(next, state, auth, logger)
+	if !proxy.Enabled() {
+		return base
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &trustedProxySessionHandler{next: base, auth: auth, logger: logger, proxy: proxy}
+}
+
+type trustedProxySessionHandler struct {
+	next   http.Handler
+	auth   *operator.Manager
+	logger *slog.Logger
+	proxy  TrustedProxy
+}
+
+func (h *trustedProxySessionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	identity, ok := h.proxy.Identity(r)
+	if !ok {
+		h.next.ServeHTTP(w, r)
+		return
+	}
+
+	request := r.Clone(r.Context())
+	// AegisPXE only sets this after the direct peer and forwarded protocol
+	// have passed the TrustedProxy contract above. Downstream code can then
+	// treat the request as HTTPS-terminated without trusting arbitrary headers.
+	request.TLS = &tls.ConnectionState{}
+	if requestID(request) == "" {
+		id, err := idgen.New("req_")
+		if err != nil {
+			http.Error(w, "operator service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		request.Header.Set("X-Request-ID", id)
+	}
+
+	if h.auth != nil {
+		cookie, cookieErr := request.Cookie(sessionCookieName)
+		if cookieErr != nil || !validSessionCookie(h.auth, cookie) {
+			token, session, err := h.auth.IssueSession("proxy:" + identity)
+			if err != nil {
+				h.logger.ErrorContext(request.Context(), "trusted proxy session failed",
+					"component", "operator.auth",
+					"operation", "proxy_session",
+					"request_id", requestID(request),
+					"remote", remoteHost(request),
+					"error_code", fault.StorageFailure,
+					"result", "failure",
+					"cause", err.Error(),
+				)
+				http.Error(w, "operator service unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			cookie = &http.Cookie{
+				Name:     sessionCookieName,
+				Value:    token,
+				Path:     "/ui/",
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteStrictMode,
+				Expires:  session.ExpiresAt,
+				MaxAge:   int(operator.SessionDuration.Seconds()),
+			}
+			http.SetCookie(w, cookie)
+			request.AddCookie(cookie)
+			h.logger.InfoContext(request.Context(), "operator authenticated by trusted proxy",
+				"component", "operator.auth",
+				"operation", "proxy_session",
+				"request_id", requestID(request),
+				"remote", remoteHost(request),
+				"actor", session.Actor,
+				"result", "success",
+			)
+		}
+	}
+	h.next.ServeHTTP(w, request)
+}
+
+func RequireTrustedProxyOrLoopback(next http.Handler, proxy TrustedProxy, logger *slog.Logger) http.Handler {
+	if !proxy.Enabled() {
+		return next
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if addr, ok := remoteAddr(r.RemoteAddr); ok && addr.IsLoopback() {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if _, ok := proxy.Identity(r); ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		logger.WarnContext(r.Context(), "studio request rejected outside trusted proxy boundary",
+			"component", "operator.proxy",
+			"operation", "gate",
+			"remote", remoteHost(r),
+			"error_code", fault.OperatorSecureTransportRequired,
+			"result", "rejected",
+			"cause", "untrusted_proxy_source_or_identity",
+		)
+		http.Error(w, "studio access denied", http.StatusForbidden)
+	})
+}
+
+func validSessionCookie(auth *operator.Manager, cookie *http.Cookie) bool {
+	if auth == nil || cookie == nil || cookie.Value == "" {
+		return false
+	}
+	_, ok := auth.Session(cookie.Value)
+	return ok
 }
 
 func (p TrustedProxy) contains(addr netip.Addr) bool {
