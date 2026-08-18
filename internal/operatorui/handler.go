@@ -1,18 +1,14 @@
 package operatorui
 
 import (
-	"fmt"
 	"html/template"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/Ostsee-Developer/AegisPXE/internal/assignment"
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
-	"github.com/Ostsee-Developer/AegisPXE/internal/installation"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
 	"github.com/Ostsee-Developer/AegisPXE/internal/operator"
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
@@ -356,8 +352,3 @@ func remoteHost(r *http.Request) string {
 func requestID(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get("X-Request-ID"))
 }
-
-var _ = fmt.Sprintf
-var _ = assignment.StateArmed
-var _ = installation.Spec{}
-var _ = time.Second
