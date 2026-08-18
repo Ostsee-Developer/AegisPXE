@@ -40,12 +40,19 @@ Section: admin
 Priority: optional
 Architecture: $DEB_ARCH
 Maintainer: Ostsee-Developer
+Depends: adduser
 Description: Security-first headless PXE provisioning control plane
 EOF
 
 cat > "$PKG_ROOT/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
+if ! getent group aegispxe >/dev/null 2>&1; then
+  addgroup --system aegispxe
+fi
+if ! getent passwd aegispxe >/dev/null 2>&1; then
+  adduser --system --ingroup aegispxe --no-create-home --home /nonexistent --shell /usr/sbin/nologin aegispxe
+fi
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
   systemctl daemon-reload
   systemctl enable --now aegispxe.service
