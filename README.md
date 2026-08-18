@@ -51,9 +51,11 @@ See [`docs/0.0.3-discovery-slice.md`](docs/0.0.3-discovery-slice.md) for the API
 
 ## 0.1.0 development slice
 
-Development now targets **Debian 13 Standard**. `0.1.0-dev.1` introduces the immutable `InstallationSpec` foundation: server-assigned installation identity, pinned driver/profile revisions, artifact identities with canonical SHA-256 digests, storage/security snapshots, non-secret lifecycle credential identity and atomic `INSTALLATION_CREATED` audit output.
+Development now targets **Debian 13 Standard**. `0.1.0-dev.1` introduced the immutable `InstallationSpec` foundation: server-assigned installation identity, pinned driver/profile revisions, storage/security snapshots, non-secret lifecycle credential identity and atomic `INSTALLATION_CREATED` audit output.
 
-This foundation deliberately exposes no administrative creation endpoint and boots no installer yet. Creating or arming installations remains unavailable until an explicit authenticated operator boundary exists. See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md).
+`0.1.0-dev.2` adds the first Debian 13 driver artifact path. AegisPXE verifies Debian's signed `trixie/InRelease`, resolves the moving installer alias to a versioned installer build, verifies the trusted `SHA256SUMS`, then verifies the actual amd64 netboot `linux` and `initrd.gz` bytes. InstallationSpecs now pin the versioned source URL, installer version, SHA-256 digest, byte size and provenance for each artifact.
+
+This slice still exposes no administrative creation endpoint and boots no installer yet. Creating or arming installations remains unavailable until an explicit authenticated operator boundary exists. See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md) and [`docs/0.1.0-artifact-verification.md`](docs/0.1.0-artifact-verification.md).
 
 ## Project constitution
 
@@ -80,4 +82,4 @@ The Project Constitution workflow verifies that foundational contracts remain pr
 
 **0.1.0: Debian 13 Standard.**
 
-The current development step is the immutable InstallationSpec foundation. The next vertical step resolves and verifies Debian 13 installer artifacts against that frozen contract before any real installer is armed.
+The current development step is trusted Debian 13 artifact resolution and verification. The next vertical step will persist verified installer artifacts and render the first typed Debian boot specification without yet pretending that an installer has started.

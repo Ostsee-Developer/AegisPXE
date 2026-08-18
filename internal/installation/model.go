@@ -1,17 +1,15 @@
 package installation
 
 import (
-	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Ostsee-Developer/AegisPXE/internal/artifact"
 )
 
-type Artifact struct {
-	ID     string
-	Name   string
-	Digest string
-}
+type Artifact = artifact.Descriptor
 
 type Storage struct {
 	Mode       string
@@ -71,15 +69,9 @@ func (s Spec) Validate() error {
 	if len(s.Artifacts) > 16 {
 		return errors.New("too many installation artifacts")
 	}
-	for _, artifact := range s.Artifacts {
-		if strings.TrimSpace(artifact.ID) == "" || strings.TrimSpace(artifact.Name) == "" {
-			return errors.New("artifact ID and name are required")
-		}
-		if len(artifact.ID) > 128 || len(artifact.Name) > 128 {
-			return errors.New("artifact metadata exceeds size limit")
-		}
-		if !validSHA256(artifact.Digest) {
-			return errors.New("artifact digest must be canonical sha256")
+	for _, item := range s.Artifacts {
+		if err := item.Validate(); err != nil {
+			return fmt.Errorf("invalid installation artifact %q: %w", item.ID, err)
 		}
 	}
 	if strings.TrimSpace(s.Storage.Mode) == "" || strings.TrimSpace(s.Storage.Filesystem) == "" {
@@ -98,17 +90,4 @@ func (s Spec) Clone() Spec {
 	copy := s
 	copy.Artifacts = append([]Artifact(nil), s.Artifacts...)
 	return copy
-}
-
-func validSHA256(value string) bool {
-	const prefix = "sha256:"
-	if !strings.HasPrefix(value, prefix) {
-		return false
-	}
-	raw := strings.TrimPrefix(value, prefix)
-	if len(raw) != 64 || strings.ToLower(raw) != raw {
-		return false
-	}
-	_, err := hex.DecodeString(raw)
-	return err == nil
 }
