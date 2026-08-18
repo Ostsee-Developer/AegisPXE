@@ -1,6 +1,12 @@
 package installation
 
-import "testing"
+import (
+	"encoding/base64"
+	"strings"
+	"testing"
+
+	"github.com/Ostsee-Developer/AegisPXE/internal/profile"
+)
 
 func TestSpecValidationRejectsUnverifiedArtifactDigest(t *testing.T) {
 	spec := validSpec()
@@ -29,12 +35,13 @@ func TestSpecValidationRejectsDuplicateArtifactRoles(t *testing.T) {
 	}
 }
 
-func TestCloneOwnsArtifactSlice(t *testing.T) {
+func TestCloneOwnsMutableSlices(t *testing.T) {
 	spec := validSpec()
 	clone := spec.Clone()
 	clone.Artifacts[0].Digest = "sha256:" + repeatHex("b")
-	if spec.Artifacts[0].Digest == clone.Artifacts[0].Digest {
-		t.Fatal("clone shares mutable artifact slice")
+	clone.Profile.Packages[0] = "curl"
+	if spec.Artifacts[0].Digest == clone.Artifacts[0].Digest || spec.Profile.Packages[0] == clone.Profile.Packages[0] {
+		t.Fatal("installation spec clone shares mutable slices")
 	}
 }
 
@@ -42,11 +49,24 @@ func validSpec() Spec {
 	return Spec{
 		MachineID:       "m_test",
 		DriverID:        "debian13",
-		DriverVersion:   "0.1.0-dev.1",
+		DriverVersion:   "1",
 		OSRelease:       "13",
 		Architecture:    "amd64",
 		ProfileID:       "standard",
 		ProfileRevision: "rev_1",
+		Profile: profile.Snapshot{
+			SchemaVersion: profile.SchemaVersion,
+			Hostname:      "aegis-node",
+			Locale:        "de_DE.UTF-8",
+			Keyboard:      "de",
+			Timezone:      "Europe/Berlin",
+			Admin: profile.Admin{
+				Username:          "guardian",
+				FullName:          "Aegis Administrator",
+				AuthorizedSSHKeys: []string{validPublicKey()},
+			},
+			Packages: []string{"jq"},
+		},
 		Artifacts: []Artifact{{
 			ID:         "artifact_linux",
 			Name:       "linux",
@@ -61,6 +81,11 @@ func validSpec() Spec {
 		LifecycleCredentialID: "cred_test",
 		CreatedBy:             "system:test",
 	}
+}
+
+func validPublicKey() string {
+	payload := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 64)))
+	return "ssh-ed25519 " + payload + " test"
 }
 
 func repeatHex(value string) string {
