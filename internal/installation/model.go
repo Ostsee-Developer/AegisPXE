@@ -47,6 +47,13 @@ type Spec struct {
 	CreatedBy             string
 }
 
+func ValidateTargetDisk(value string) error {
+	if !targetDiskPattern.MatchString(value) {
+		return errors.New("storage target disk is invalid or refers to a partition")
+	}
+	return nil
+}
+
 func (s Spec) Validate() error {
 	for name, value := range map[string]string{
 		"machine ID":              s.MachineID,
@@ -99,8 +106,8 @@ func (s Spec) Validate() error {
 	if len(s.Storage.Mode) > 64 || len(s.Storage.Filesystem) > 64 {
 		return errors.New("storage metadata exceeds size limit")
 	}
-	if !targetDiskPattern.MatchString(s.Storage.TargetDisk) {
-		return errors.New("storage target disk is invalid or refers to a partition")
+	if err := ValidateTargetDisk(s.Storage.TargetDisk); err != nil {
+		return err
 	}
 	if s.Storage.TPM2 && !s.Storage.Encrypted {
 		return errors.New("TPM2 enrollment requires encrypted storage")

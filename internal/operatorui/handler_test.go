@@ -56,7 +56,7 @@ func TestHTTPSLoginCreatesHttpOnlyStrictSessionCookie(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui/" {
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui/operator/" {
 		t.Fatalf("status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	cookies := rec.Result().Cookies()
