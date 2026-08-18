@@ -27,7 +27,7 @@ func TestInstallationSpecRoundTripIsImmutableSnapshot(t *testing.T) {
 		Architecture:          "amd64",
 		ProfileID:             "standard",
 		ProfileRevision:       "rev_standard_1",
-		Artifacts:             []installation.Artifact{{ID: "artifact_linux", Name: "linux", Digest: digest("a")}, {ID: "artifact_initrd", Name: "initrd", Digest: digest("b")}},
+		Artifacts:             []installation.Artifact{installationArtifact("linux", "a"), installationArtifact("initrd.gz", "b")},
 		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
 		Security:              installation.Security{AutomaticSecurityUpdates: true},
 		LifecycleCredentialID: "cred_1",
@@ -75,7 +75,7 @@ func TestInstallationSpecRejectsCallerAssignedIdentity(t *testing.T) {
 		Architecture:          "amd64",
 		ProfileID:             "standard",
 		ProfileRevision:       "rev_standard_1",
-		Artifacts:             []installation.Artifact{{ID: "artifact_linux", Name: "linux", Digest: digest("a")}},
+		Artifacts:             []installation.Artifact{installationArtifact("linux", "a")},
 		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
 		LifecycleCredentialID: "cred_1",
 		CreatedBy:             "system:test",
@@ -96,13 +96,25 @@ func TestInstallationSpecRequiresExistingMachine(t *testing.T) {
 		Architecture:          "amd64",
 		ProfileID:             "standard",
 		ProfileRevision:       "rev_standard_1",
-		Artifacts:             []installation.Artifact{{ID: "artifact_linux", Name: "linux", Digest: digest("a")}},
+		Artifacts:             []installation.Artifact{installationArtifact("linux", "a")},
 		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
 		LifecycleCredentialID: "cred_1",
 		CreatedBy:             "system:test",
 	}, "req_install")
 	if fault.Code(err) != fault.MachineNotFound {
 		t.Fatalf("missing-machine code=%q err=%v", fault.Code(err), err)
+	}
+}
+
+func installationArtifact(name, value string) installation.Artifact {
+	return installation.Artifact{
+		ID:         "artifact_" + strings.TrimSuffix(name, ".gz"),
+		Name:       name,
+		SourceURL:  "https://deb.debian.org/debian/dists/trixie/example/" + name,
+		Version:    "installer-1",
+		Digest:     digest(value),
+		Size:       1,
+		Provenance: "debian:trixie:test",
 	}
 }
 
