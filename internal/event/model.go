@@ -8,6 +8,9 @@ const MachineDiscovered = "MACHINE_DISCOVERED"
 const MachineSeen = "MACHINE_SEEN"
 const MachinePolicyChanged = "MACHINE_POLICY_CHANGED"
 const InstallationCreated = "INSTALLATION_CREATED"
+const InstallationArmed = "INSTALLATION_ARMED"
+const InstallationAssignmentCancelled = "INSTALLATION_ASSIGNMENT_CANCELLED"
+const InstallationAssignmentConsumed = "INSTALLATION_ASSIGNMENT_CONSUMED"
 
 type Event struct {
 	Sequence   int64
