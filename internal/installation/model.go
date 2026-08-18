@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Ostsee-Developer/AegisPXE/internal/artifact"
+	"github.com/Ostsee-Developer/AegisPXE/internal/profile"
 )
 
 type Artifact = artifact.Descriptor
@@ -33,6 +34,7 @@ type Spec struct {
 	Architecture          string
 	ProfileID             string
 	ProfileRevision       string
+	Profile               profile.Snapshot
 	Artifacts             []Artifact
 	Storage               Storage
 	Security              Security
@@ -62,6 +64,9 @@ func (s Spec) Validate() error {
 	}
 	if len(s.ProfileID) > 128 || len(s.ProfileRevision) > 128 || len(s.LifecycleCredentialID) > 128 || len(s.CreatedBy) > 128 {
 		return errors.New("installation metadata exceeds size limit")
+	}
+	if err := s.Profile.Validate(); err != nil {
+		return fmt.Errorf("invalid profile snapshot: %w", err)
 	}
 	if len(s.Artifacts) == 0 {
 		return errors.New("at least one verified artifact is required")
@@ -98,6 +103,7 @@ func (s Spec) Validate() error {
 
 func (s Spec) Clone() Spec {
 	copy := s
+	copy.Profile = s.Profile.Clone()
 	copy.Artifacts = append([]Artifact(nil), s.Artifacts...)
 	return copy
 }
