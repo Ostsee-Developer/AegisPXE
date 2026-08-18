@@ -19,6 +19,11 @@ const (
 	InstallationAssignmentConflict = "INS004_INSTALLATION_ASSIGNMENT_CONFLICT"
 	InstallationAssignmentNotFound = "INS005_INSTALLATION_ASSIGNMENT_NOT_FOUND"
 	CryptographicBootTrustRequired = "SEC001_CRYPTOGRAPHIC_BOOT_TRUST_REQUIRED"
+	OperatorAuthenticationFailed   = "SEC002_OPERATOR_AUTHENTICATION_FAILED"
+	OperatorAuthRateLimited        = "SEC003_OPERATOR_AUTH_RATE_LIMITED"
+	OperatorSessionRequired        = "SEC004_OPERATOR_SESSION_REQUIRED"
+	OperatorCSRFInvalid            = "SEC005_OPERATOR_CSRF_INVALID"
+	OperatorSecureTransportRequired = "SEC006_SECURE_OPERATOR_TRANSPORT_REQUIRED"
 	StorageFailure                 = "SYS001_STORAGE_FAILURE"
 )
 
