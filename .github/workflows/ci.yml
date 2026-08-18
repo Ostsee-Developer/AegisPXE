@@ -125,10 +125,14 @@ jobs:
 
           bootstrap="$(curl --fail --silent http://127.0.0.1:18090/boot/discovery.ipxe)"
           grep -Fq '#!ipxe' <<<"$bootstrap"
-          grep -Fq '##params' <<<"$bootstrap"
+          grep -Fq 'api/v1/discovery.ipxe?mac=${net0/mac}' <<<"$bootstrap"
+          if grep -Fq '##params' <<<"$bootstrap" || grep -Fq $'\nparams\n' <<<"$bootstrap"; then
+            echo 'bootstrap unexpectedly requires optional iPXE PARAM_CMD' >&2
+            exit 1
+          fi
 
           for _ in $(seq 1 20); do
-            decision="$(curl --fail --silent \
+            decision="$(curl --fail --silent --get \
               --data-urlencode 'mac=52:54:00:12:34:56' \
               --data-urlencode 'smbios_uuid=11111111-2222-3333-4444-555555555555' \
               --data-urlencode 'architecture=x86_64' \
