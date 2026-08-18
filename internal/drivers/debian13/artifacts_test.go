@@ -28,10 +28,10 @@ func TestResolvePinsVersionedVerifiedArtifacts(t *testing.T) {
 	resolver := &ArtifactResolver{
 		baseURL: debianBaseURL,
 		fetcher: mapFetcher{content: map[string][]byte{
-			debianBaseURL + "/dists/trixie/InRelease":                    []byte("signed"),
-			base + "/SHA256SUMS":                                          manifest,
-			base + "/netboot/debian-installer/amd64/linux":                kernel,
-			base + "/netboot/debian-installer/amd64/initrd.gz":            initrd,
+			debianBaseURL + "/dists/trixie/InRelease":          []byte("signed"),
+			base + "/SHA256SUMS":                               manifest,
+			base + "/netboot/debian-installer/amd64/linux":     kernel,
+			base + "/netboot/debian-installer/amd64/initrd.gz": initrd,
 		}},
 		verifier: staticVerifier{content: release},
 		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -66,9 +66,9 @@ func TestResolveRejectsArtifactHashMismatch(t *testing.T) {
 	resolver := &ArtifactResolver{
 		baseURL: debianBaseURL,
 		fetcher: mapFetcher{content: map[string][]byte{
-			debianBaseURL + "/dists/trixie/InRelease":         []byte("signed"),
-			base + "/SHA256SUMS":                               manifest,
-			base + "/netboot/debian-installer/amd64/linux":     []byte("tampered-kernel"),
+			debianBaseURL + "/dists/trixie/InRelease":      []byte("signed"),
+			base + "/SHA256SUMS":                           manifest,
+			base + "/netboot/debian-installer/amd64/linux": []byte("tampered-kernel"),
 		}},
 		verifier: staticVerifier{content: release},
 		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
