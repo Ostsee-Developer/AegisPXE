@@ -48,7 +48,7 @@ func TestRenderSeedPinsDiskAndKeyOnlyAdmin(t *testing.T) {
 	}
 }
 
-func TestRenderSeedLateHookIsObservableAndFailClosed(t *testing.T) {
+func TestRenderSeedLateHookWritesDeterministicStepMarkers(t *testing.T) {
 	spec := validInstallationSpec()
 	var logs bytes.Buffer
 	logger := observability.New(&logs, slog.LevelDebug)
@@ -61,18 +61,43 @@ func TestRenderSeedLateHookIsObservableAndFailClosed(t *testing.T) {
 	for _, want := range []string{
 		"/target/var/log/aegispxe-installer.log",
 		"component=aegispxe step=late_command result=started",
+		"component=aegispxe step=authorized_keys result=started",
+		"component=aegispxe step=validate_sudoers result=started",
 		"component=aegispxe step=prepare_sshd_runtime result=started",
 		"in-target install -d -m 0755 /run/sshd",
 		"in-target ssh-keygen -A",
 		"component=aegispxe step=validate_sshd result=started",
-		"AEGIS_RESULT=success",
+		"component=aegispxe step=automatic_updates result=success",
+		"component=aegispxe step=late_command result=success",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("late hook missing %q", want)
 		}
 	}
-	if strings.Contains(content, "|| true") {
-		t.Fatal("late hook must not hide hardening or validation failures")
+	marker := strings.Index(content, "component=aegispxe step=late_command result=started")
+	firstHardeningCommand := strings.Index(content, "in-target install -d -m 0700")
+	if marker < 0 || firstHardeningCommand < 0 || marker > firstHardeningCommand {
+		t.Fatal("late hook must persist its first marker before target hardening starts")
+	}
+}
+
+func TestRenderSeedLateHookFailsClosedWithoutComplexExitTrap(t *testing.T) {
+	spec := validInstallationSpec()
+	var logs bytes.Buffer
+	logger := observability.New(&logs, slog.LevelDebug)
+
+	seed, err := RenderSeed(context.Background(), logger, spec, "req_late_hook_fail_closed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(seed.Content)
+	if !strings.Contains(content, "d-i preseed/late_command string set -e;") {
+		t.Fatal("late hook must fail closed with set -e")
+	}
+	for _, forbidden := range []string{"|| true", "trap '", "AEGIS_RESULT="} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("late hook contains fragile or failure-masking shell construct %q", forbidden)
+		}
 	}
 }
 

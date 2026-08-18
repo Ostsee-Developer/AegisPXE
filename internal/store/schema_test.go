@@ -11,7 +11,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/observability"
 )
 
-func TestSchemaMigrationAddsProfileSnapshotAndAssignmentSchemaWithLogs(t *testing.T) {
+func TestSchemaMigrationAddsProvisioningAndOperatorIdentitySchemaWithLogs(t *testing.T) {
 	path := t.TempDir() + "/aegispxe-v1.db"
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -70,8 +70,17 @@ func TestSchemaMigrationAddsProfileSnapshotAndAssignmentSchemaWithLogs(t *testin
 	if !tableExistsForTest(t, state.db, "installation_assignments") {
 		t.Fatal("installation_assignments table was not added")
 	}
+	if !tableExistsForTest(t, state.db, "operator_users") || !tableExistsForTest(t, state.db, "operator_credentials") {
+		t.Fatal("operator identity tables were not added")
+	}
 	logText := logs.String()
-	if !strings.Contains(logText, `"component":"store.schema"`) || !strings.Contains(logText, `"operation":"migrate"`) || !strings.Contains(logText, `"from_version":1`) || !strings.Contains(logText, `"to_version":3`) || !strings.Contains(logText, `"assignment_schema_added":true`) || !strings.Contains(logText, `"result":"success"`) {
+	if !strings.Contains(logText, `"component":"store.schema"`) ||
+		!strings.Contains(logText, `"operation":"migrate"`) ||
+		!strings.Contains(logText, `"from_version":1`) ||
+		!strings.Contains(logText, `"to_version":4`) ||
+		!strings.Contains(logText, `"assignment_schema_added":true`) ||
+		!strings.Contains(logText, `"operator_identity_schema_added":true`) ||
+		!strings.Contains(logText, `"result":"success"`) {
 		t.Fatalf("migration log missing contract fields: %s", logText)
 	}
 }

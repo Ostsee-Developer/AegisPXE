@@ -49,21 +49,20 @@ func TestPXESurfaceExposesBootButNotStudio(t *testing.T) {
 	}
 }
 
-func TestStudioSurfaceHidesBootAndUsesOperatorConsoleAsRoot(t *testing.T) {
+func TestStudioSurfaceHidesBootAndUsesUnifiedDashboardAsRoot(t *testing.T) {
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	handler := studioSurface(upstream)
 
-	for _, path := range []string{"/", "/ui/"} {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-		if rec.Code != http.StatusTemporaryRedirect || rec.Header().Get("Location") != "/ui/operator/" {
-			t.Fatalf("studio root %q status=%d location=%q", path, rec.Code, rec.Header().Get("Location"))
-		}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTemporaryRedirect || rec.Header().Get("Location") != "/ui/" {
+		t.Fatalf("studio root status=%d location=%q", rec.Code, rec.Header().Get("Location"))
 	}
-	for _, path := range []string{"/ui/operator/", "/ui/machines/m_test", "/api/v1/machines", "/healthz"} {
+
+	for _, path := range []string{"/ui/", "/ui/operator/", "/ui/machines/m_test", "/api/v1/machines", "/healthz"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)

@@ -19,7 +19,6 @@ import (
 
 func TestRepeatedDiscoveryKeepsOnePendingMachine(t *testing.T) {
 	state, handler := testServer(t)
-
 	form := url.Values{
 		"mac":          {"52:54:00:12:34:56"},
 		"smbios_uuid":  {"11111111-2222-3333-4444-555555555555"},
@@ -59,31 +58,8 @@ func TestRepeatedDiscoveryKeepsOnePendingMachine(t *testing.T) {
 	}
 }
 
-func TestDashboardShowsPendingMachine(t *testing.T) {
-	_, handler := testServer(t)
-	form := url.Values{"mac": {"52:54:00:12:34:57"}}
-	req := httptest.NewRequest(http.MethodPost, "http://aegispxe.test/api/v1/discovery.ipxe", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("discovery status = %d", rec.Code)
-	}
-
-	req = httptest.NewRequest(http.MethodGet, "http://aegispxe.test/ui/", nil)
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("web ui status = %d", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "PENDING") || !strings.Contains(rec.Body.String(), "Discovery inventory") {
-		t.Fatalf("web ui does not show pending discovery inventory: %s", rec.Body.String())
-	}
-}
-
 func TestProvisionPolicyFailsClosedWithoutInstallationSpec(t *testing.T) {
 	state, handler := testServer(t)
-
 	payload := []byte(`{"mac":"52:54:00:aa:bb:cc","smbios_uuid":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","architecture":"x86_64","firmware":"efi"}`)
 	req := httptest.NewRequest(http.MethodPost, "http://aegispxe.test/api/v1/discovery", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")

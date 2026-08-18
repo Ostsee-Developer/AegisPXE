@@ -20,7 +20,6 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
-	"github.com/Ostsee-Developer/AegisPXE/internal/webui"
 )
 
 const (
@@ -101,7 +100,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/machines/{id}", s.machine)
 	mux.HandleFunc("GET /api/v1/machines/{id}/events", s.machineEvents)
 	s.registerProvisioning(mux)
-	webui.New(s.state, s.logger, s.version).Register(mux)
 	return requestLog(s.logger, mux)
 }
 
