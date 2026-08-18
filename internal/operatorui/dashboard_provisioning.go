@@ -11,6 +11,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
 	"github.com/Ostsee-Developer/AegisPXE/internal/installation"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
+	"github.com/Ostsee-Developer/AegisPXE/internal/operator"
 	"github.com/Ostsee-Developer/AegisPXE/internal/profile"
 )
 
@@ -143,7 +144,12 @@ func (h *DashboardHandler) dashboardCreateInstallation(w http.ResponseWriter, r 
 		Locale:        strings.TrimSpace(values.Locale),
 		Keyboard:      strings.TrimSpace(values.Keyboard),
 		Timezone:      strings.TrimSpace(values.Timezone),
-		Admin: profile.Admin{Username: strings.TrimSpace(values.AdminUsername), FullName: strings.TrimSpace(values.AdminFullName), AuthorizedSSHKeys: parseSSHKeys(values.SSHKeys), PasswordlessSudo: true},
+		Admin: profile.Admin{
+			Username:          strings.TrimSpace(values.AdminUsername),
+			FullName:          strings.TrimSpace(values.AdminFullName),
+			AuthorizedSSHKeys: parseSSHKeys(values.SSHKeys),
+			PasswordlessSudo:  true,
+		},
 		Packages: parsePackages(values.Packages),
 	}
 	if err := profileSnapshot.Validate(); err != nil {
@@ -243,6 +249,15 @@ func (h *DashboardHandler) provisionMachines(r *http.Request) ([]machine.Machine
 	return out, nil
 }
 
-func (h *DashboardHandler) renderDashboardWizardError(w http.ResponseWriter, r *http.Request, session interface{ GetActor() string }, values wizardValues, message, code, cause string, started time.Time) {
-	// Kept as an interface-free helper below; this signature is replaced at compile time by the concrete wrapper.
+func (h *DashboardHandler) renderDashboardWizardError(w http.ResponseWriter, r *http.Request, session operator.Session, values wizardValues, message, code, cause string, started time.Time) {
+	if code == "" {
+		code = fault.InstallationSpecInvalid
+	}
+	h.logger.WarnContext(r.Context(), "operator installation wizard rejected", "component", "operator.installation", "operation", "create_spec", "request_id", requestID(r), "machine_id", values.MachineID, "actor", session.Actor, "error_code", code, "result", "rejected", "cause", cause, "duration_ms", time.Since(started).Milliseconds())
+	machines, err := h.provisionMachines(r)
+	if err != nil {
+		h.writeDashboardError(w, r, "wizard_machines", err)
+		return
+	}
+	h.renderDashboard(w, dashboardView{Page: "installations", Title: "New installation", Description: "Debian 13 Standard with server-owned artifact trust and security baseline.", Session: session, Machines: machines, Wizard: values, Error: message})
 }
