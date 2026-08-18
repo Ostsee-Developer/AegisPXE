@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -14,16 +15,28 @@ import (
 )
 
 func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observation, requestID string) (machine.Machine, bool, error) {
-	identifiers, err := observation.Identifiers()
-	if err != nil {
-		return machine.Machine{}, false, fault.New(fault.MachineIdentityInvalid, "machine identity is invalid", err)
-	}
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
+		var err error
 		requestID, err = idgen.New("req_")
 		if err != nil {
+			s.logger.ErrorContext(ctx, "request ID allocation failed", "component", "store.machine", "operation", "discover", "error_code", fault.StorageFailure, "error", err)
 			return machine.Machine{}, false, fault.New(fault.StorageFailure, "could not allocate request identifier", err)
 		}
+	}
+
+	architecture := strings.TrimSpace(observation.Architecture)
+	firmware := strings.TrimSpace(observation.Firmware)
+	if len(architecture) > 64 || len(firmware) > 64 {
+		err := fault.New(fault.MachineIdentityInvalid, "machine observation metadata is too large", nil)
+		s.logger.WarnContext(ctx, "machine observation rejected", "component", "store.machine", "operation", "discover", "request_id", requestID, "error_code", fault.Code(err))
+		return machine.Machine{}, false, err
+	}
+	identifiers, err := observation.Identifiers()
+	if err != nil {
+		wrapped := fault.New(fault.MachineIdentityInvalid, "machine identity is invalid", err)
+		s.logger.WarnContext(ctx, "machine observation rejected", "component", "store.machine", "operation", "discover", "request_id", requestID, "error_code", fault.Code(wrapped))
+		return machine.Machine{}, false, wrapped
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -39,7 +52,7 @@ func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observa
 		switch {
 		case err == nil:
 			matches[machineID] = struct{}{}
-		case err == sql.ErrNoRows:
+		case errors.Is(err, sql.ErrNoRows):
 			continue
 		default:
 			return machine.Machine{}, false, s.storageError("resolve machine identity", err)
@@ -62,14 +75,13 @@ func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observa
 	if created {
 		machineID, err = idgen.New("m_")
 		if err != nil {
+			s.logger.ErrorContext(ctx, "machine ID allocation failed", "component", "store.machine", "operation", "discover", "request_id", requestID, "error_code", fault.StorageFailure, "error", err)
 			return machine.Machine{}, false, fault.New(fault.StorageFailure, "could not allocate machine identifier", err)
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO machines(id,policy,architecture,firmware,first_seen,last_seen) VALUES(?,?,?,?,?,?)`,
-			machineID, machine.PolicyPending, strings.TrimSpace(observation.Architecture), strings.TrimSpace(observation.Firmware), stamp, stamp)
+		_, err = tx.ExecContext(ctx, `INSERT INTO machines(id,policy,architecture,firmware,first_seen,last_seen) VALUES(?,?,?,?,?,?)`, machineID, machine.PolicyPending, architecture, firmware, stamp, stamp)
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE machines SET architecture=CASE WHEN ?='' THEN architecture ELSE ? END,
-			firmware=CASE WHEN ?='' THEN firmware ELSE ? END,last_seen=? WHERE id=?`,
-			strings.TrimSpace(observation.Architecture), strings.TrimSpace(observation.Architecture), strings.TrimSpace(observation.Firmware), strings.TrimSpace(observation.Firmware), stamp, machineID)
+			firmware=CASE WHEN ?='' THEN firmware ELSE ? END,last_seen=? WHERE id=?`, architecture, architecture, firmware, firmware, stamp, machineID)
 	}
 	if err != nil {
 		return machine.Machine{}, false, s.storageError("persist machine observation", err)
@@ -110,8 +122,11 @@ func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observa
 
 func (s *Store) Machine(ctx context.Context, id string) (machine.Machine, error) {
 	result, err := scanMachine(s.db.QueryRowContext(ctx, `SELECT id,policy,architecture,firmware,first_seen,last_seen FROM machines WHERE id=?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return machine.Machine{}, fault.New(fault.MachineNotFound, "machine not found", err)
+	}
 	if err != nil {
-		return machine.Machine{}, err
+		return machine.Machine{}, s.storageError("read machine", err)
 	}
 	return result, nil
 }
