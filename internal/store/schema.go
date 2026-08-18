@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 2
+const currentSchemaVersion = 3
 
 func (s *Store) initialize(ctx context.Context) error {
 	for _, pragma := range []string{
@@ -30,7 +30,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			version INTEGER NOT NULL
 		)`,
 		`INSERT INTO schema_meta(version)
-		 SELECT 2 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
+		 SELECT 3 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
 		`CREATE TABLE IF NOT EXISTS machines (
 			id TEXT PRIMARY KEY,
 			policy TEXT NOT NULL CHECK(policy IN ('pending','local','provision','blocked')),
@@ -66,6 +66,20 @@ func (s *Store) initialize(ctx context.Context) error {
 			created_by TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_installation_specs_machine ON installation_specs(machine_id, created_at)`,
+		`CREATE TABLE IF NOT EXISTS installation_assignments (
+			id TEXT PRIMARY KEY,
+			machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE RESTRICT,
+			installation_id TEXT NOT NULL UNIQUE REFERENCES installation_specs(id) ON DELETE RESTRICT,
+			state TEXT NOT NULL CHECK(state IN ('armed','consumed','cancelled')),
+			trust_requirement TEXT NOT NULL CHECK(trust_requirement = 'cryptographic'),
+			armed_at TEXT NOT NULL,
+			armed_by TEXT NOT NULL,
+			consumed_at TEXT NOT NULL DEFAULT '',
+			cancelled_at TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_installation_assignments_armed_machine
+		 ON installation_assignments(machine_id) WHERE state='armed'`,
+		`CREATE INDEX IF NOT EXISTS idx_installation_assignments_installation ON installation_assignments(installation_id)`,
 		`CREATE TABLE IF NOT EXISTS events (
 			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
 			entity_type TEXT NOT NULL,
@@ -112,7 +126,15 @@ func (s *Store) initialize(ctx context.Context) error {
 		return fmt.Errorf("commit schema: %w", err)
 	}
 	if fromVersion != currentSchemaVersion || profileColumnAdded {
-		s.logger.InfoContext(ctx, "storage schema migrated", "component", "store.schema", "operation", "migrate", "from_version", fromVersion, "to_version", currentSchemaVersion, "profile_snapshot_column_added", profileColumnAdded, "result", "success")
+		s.logger.InfoContext(ctx, "storage schema migrated",
+			"component", "store.schema",
+			"operation", "migrate",
+			"from_version", fromVersion,
+			"to_version", currentSchemaVersion,
+			"profile_snapshot_column_added", profileColumnAdded,
+			"assignment_schema_added", fromVersion < 3,
+			"result", "success",
+		)
 	}
 	return nil
 }

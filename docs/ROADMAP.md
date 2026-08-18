@@ -54,6 +54,10 @@ Status: complete. The packaged 0.0.3 development path passed the real UEFI PXE r
 - Debian 13 driver,
 - verified artifacts,
 - unattended installer configuration,
+- layered provisioning trust and assignment,
+- minimal authenticated operator create/approve/arm/cancel path,
+- assignment-authorized public boot transport,
+- cryptographic boot trust for secret-bearing installer operations,
 - real installer lifecycle telemetry,
 - installer log ingestion,
 - first-boot finalizer,
@@ -68,9 +72,13 @@ Status: complete. The packaged 0.0.3 development path passed the real UEFI PXE r
 
 `0.1.0-dev.4` resolves the selected profile revision into a versioned immutable ProfileSnapshot, pins the whole-device installation target, establishes the first strict Debian Standard capability gate, renders the native Debian Preseed SeedBundle, and adds correlated verified-artifact loading. Driver render, artifact verification and schema migration paths are structured-log observable and use stable failure codes. Seed/key/credential content is excluded from normal logs.
 
-The dev.4 seed is not exposed over HTTP and the verified artifact loader is not registered as a public boot endpoint. Network seed delivery still needs a secret-safe installation credential transport, and public artifact delivery must be bound to an armed Machine-to-Installation assignment. Boot-material reads do not imply `INSTALLER_STARTED` or consume an assignment.
+`0.1.0-dev.5` separates discovery identity, operator approval, armed assignment and cryptographic boot trust. It persists a single-active Machine-to-Installation assignment with audit events, defines public-boot versus secret-release trust gates, and adds read-only Studio InstallationSpec/assignment/trust views. Debian Standard chooses initrd preseeding, so no credential-bearing network Preseed endpoint is required.
 
-The next slice establishes the armed assignment and authorized installer boot transport. Only after that boundary is proven should the real disposable VM be allowed to chain into the Debian installer.
+The next boot slice builds a per-installation initrd derivative containing the non-secret Preseed and serves non-secret boot material only when the Machine is operator-approved and the correct InstallationSpec is armed. Reads still do not imply `INSTALLER_STARTED` or consume the assignment.
+
+Before Studio can create/approve/arm/cancel real provisioning work, 0.1.0 must add a minimal authenticated operator boundary with explicit authorization and audit. This prerequisite is intentionally moved into the core Debian milestone rather than deferred to later UX work.
+
+Cryptographic boot trust then gates lifecycle-credential release and authenticated installer telemetry. TPM-backed attestation is the preferred first hardware-backed path for capable systems; any non-TPM fallback requires an explicit security decision and must not silently downgrade.
 
 Gate: 10 consecutive unattended E2E successes and useful telemetry for intentionally failed runs, using a clean AegisPXE `.deb` installation.
 
@@ -101,8 +109,7 @@ Choose the concrete supported CentOS target/release policy at this milestone and
 
 Only after all core drivers are reliable:
 
-- authenticated administrative Studio mutations,
-- richer Provisioning Studio,
+- richer Provisioning Studio workflows beyond the minimal authenticated provisioning controls,
 - public automation API,
 - CLI workflows,
 - external integrations,

@@ -36,16 +36,7 @@ A test machine can fetch `/boot/discovery.ipxe`, submit bounded identity observa
 
 The Debian package installs the `ipxe` and `tftpd-hpa` runtime dependencies. When `tftpd-hpa` already has a safe absolute `TFTP_DIRECTORY`, package setup materializes `ipxe.efi` and `undionly.kpxe` into that root without overwriting a different pre-existing bootloader. See [`docs/PXE_RUNTIME.md`](docs/PXE_RUNTIME.md).
 
-The Studio is available at `/ui/` on the configured AegisPXE HTTP listener and currently exposes:
-
-- machine inventory and policy counts,
-- pending/local/provision/blocked state,
-- architecture and firmware observations,
-- first/last seen,
-- stored machine identifiers,
-- append-only machine event timeline.
-
-The UI remains intentionally read-only until operator authentication and authorization exist. The discovery milestone never exposes an installer, seed, profile or installation credential. Even policy `provision` returns a local/non-provisioning decision until a later milestone can prove an immutable InstallationSpec is armed.
+The Studio is available at `/ui/` on the configured AegisPXE HTTP listener. Machine discovery remains read-only and exposes inventory, policy, architecture/firmware observations, identifiers and append-only machine events.
 
 See [`docs/0.0.3-discovery-slice.md`](docs/0.0.3-discovery-slice.md) for the API, iPXE transport and E2E contract.
 
@@ -57,11 +48,13 @@ Development now targets **Debian 13 Standard**. `0.1.0-dev.1` introduced the imm
 
 `0.1.0-dev.3` completed the two-spec boundary. `InstallationSpec` remains the immutable authoritative assignment, with unique artifact roles and an independent driver contract version. The Debian 13 driver validates that contract and deterministically renders a typed `BootSpec` containing only digest-pinned kernel/initrd references, bounded public kernel arguments and a non-secret seed reference. BootSpec is not persisted as a second source of truth.
 
-`0.1.0-dev.4` makes Debian Standard renderable without introducing a second source of truth. InstallationSpecs now persist a versioned resolved ProfileSnapshot and explicit destructive target disk. Debian driver v1 fail-closes outside the unencrypted whole-disk/ext4/key-only Standard contract and renders a deterministic Preseed SeedBundle. Render operations and verified artifact loading emit correlated structured logs with stable failure codes while excluding seed, SSH-key and credential values.
+`0.1.0-dev.4` made Debian Standard renderable without introducing a second source of truth. InstallationSpecs persist a versioned resolved ProfileSnapshot and explicit destructive target disk. Debian driver v1 fail-closes outside the unencrypted whole-disk/ext4/key-only Standard contract and renders a deterministic Preseed SeedBundle. Render operations and verified artifact loading emit correlated structured logs with stable failure codes while excluding seed, SSH-key and credential values.
 
-The seed is deliberately not exposed over HTTP yet, and the verified artifact loader is deliberately not registered as a public boot route. Both transports wait for an armed Machine-to-Installation assignment and a secret-safe seed-authentication design. Fetching or rendering boot material never implies `INSTALLER_STARTED`.
+`0.1.0-dev.5` establishes the provisioning trust and assignment foundation. Discovery identity, operator approval, an armed Machine-to-Installation assignment and cryptographic boot trust are distinct layers. An armed assignment may make non-secret boot material eligible, but lifecycle credentials and authenticated installer APIs remain blocked until cryptographic proof exists. Debian Standard prefers initrd preseeding, removing the need for a credential-bearing network Preseed URL.
 
-Creating or arming installations remains unavailable until an explicit authenticated operator boundary exists. See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md), [`docs/0.1.0-artifact-verification.md`](docs/0.1.0-artifact-verification.md), [`docs/0.1.0-boot-spec.md`](docs/0.1.0-boot-spec.md) and [`docs/0.1.0-debian-preseed.md`](docs/0.1.0-debian-preseed.md).
+Studio now exposes a read-only Installations area with immutable InstallationSpec details, resolved ProfileSnapshot, verified artifact provenance, target disk/security intent, assignment state and explicit trust gates. SSH public-key payloads and lifecycle credential metadata are not rendered. Administrative approve/arm/cancel controls remain unavailable until operator authentication and authorization exist.
+
+See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md), [`docs/0.1.0-artifact-verification.md`](docs/0.1.0-artifact-verification.md), [`docs/0.1.0-boot-spec.md`](docs/0.1.0-boot-spec.md), [`docs/0.1.0-debian-preseed.md`](docs/0.1.0-debian-preseed.md) and [`docs/0.1.0-trust-assignment.md`](docs/0.1.0-trust-assignment.md).
 
 ## Project constitution
 
@@ -88,4 +81,4 @@ The Project Constitution workflow verifies that foundational contracts remain pr
 
 **0.1.0: Debian 13 Standard.**
 
-The current development step is the resolved ProfileSnapshot + Debian Preseed renderer with correlated verified-artifact loading. The next vertical slice is the armed Machine-to-Installation assignment and authorized boot transport; only then can iPXE receive a real installer BootSpec safely.
+The current development step is the layered trust/assignment foundation plus read-only Installation Studio. The next vertical slice can build a per-installation initrd derivative containing the non-secret Preseed and expose only assignment-authorized public boot material. Cryptographic boot trust remains the hard gate before lifecycle credentials and authenticated installer telemetry.

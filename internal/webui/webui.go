@@ -66,6 +66,8 @@ func New(store Store, logger *slog.Logger, version string) *UI {
 func (u *UI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/assets/style.css", u.style)
 	mux.HandleFunc("GET /ui/machines/{id}", u.machine)
+	mux.HandleFunc("GET /ui/installations", u.installationsPage)
+	mux.HandleFunc("GET /ui/installations/{id}", u.installationPage)
 	mux.HandleFunc("GET /ui/", u.dashboardPage)
 }
 
@@ -127,7 +129,7 @@ func (u *UI) machine(w http.ResponseWriter, r *http.Request) {
 func (u *UI) style(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	_, _ = w.Write([]byte(styleCSS))
+	_, _ = w.Write([]byte(styleCSS + installationCSS))
 }
 
 func (u *UI) renderError(w http.ResponseWriter, r *http.Request, operation string, err error) {
@@ -148,7 +150,7 @@ const dashboardTemplate = `<!doctype html>
 <div class="shell">
   <aside class="sidebar">
     <a class="brand" href="/ui/"><span class="brand-mark">A</span><span><strong>AegisPXE</strong><small>Provisioning Control</small></span></a>
-    <nav><a class="active" href="/ui/">Machines</a><span>Installations <b>soon</b></span><span>Profiles <b>soon</b></span><span>System <b>soon</b></span></nav>
+    <nav><a class="active" href="/ui/">Machines</a><a href="/ui/installations">Installations</a><span>Profiles <b>soon</b></span><span>System <b>soon</b></span></nav>
     <div class="side-foot"><span class="dot"></span> Server online<small>v{{.Version}}</small></div>
   </aside>
   <main>
@@ -161,7 +163,7 @@ const dashboardTemplate = `<!doctype html>
       <article><span>Blocked</span><strong>{{.Blocked}}</strong></article>
     </section>
     <section class="panel">
-      <div class="panel-head"><div><h2>Discovery inventory</h2><p>New clients are registered as pending. This view is read-only in 0.0.3.</p></div><span class="count">{{len .Machines}} total</span></div>
+      <div class="panel-head"><div><h2>Discovery inventory</h2><p>Machine identity stays read-only here; provisioning details now live under Installations.</p></div><span class="count">{{len .Machines}} total</span></div>
       {{if .Machines}}
       <div class="table-wrap"><table><thead><tr><th>Machine</th><th>Policy</th><th>Architecture</th><th>Firmware</th><th>First seen</th><th>Last seen</th></tr></thead><tbody>
       {{range .Machines}}<tr><td><a class="machine-link" href="/ui/machines/{{.ID}}">{{.ID}}</a></td><td><span class="badge badge-{{.Policy}}">{{upper (printf "%s" .Policy)}}</span></td><td>{{if .Architecture}}{{.Architecture}}{{else}}—{{end}}</td><td>{{if .Firmware}}{{.Firmware}}{{else}}—{{end}}</td><td>{{timefmt .FirstSeen}}</td><td>{{timefmt .LastSeen}}</td></tr>{{end}}
@@ -188,7 +190,7 @@ const machineTemplate = `<!doctype html>
 <div class="shell">
   <aside class="sidebar">
     <a class="brand" href="/ui/"><span class="brand-mark">A</span><span><strong>AegisPXE</strong><small>Provisioning Control</small></span></a>
-    <nav><a class="active" href="/ui/">Machines</a><span>Installations <b>soon</b></span><span>Profiles <b>soon</b></span><span>System <b>soon</b></span></nav>
+    <nav><a class="active" href="/ui/">Machines</a><a href="/ui/installations">Installations</a><span>Profiles <b>soon</b></span><span>System <b>soon</b></span></nav>
     <div class="side-foot"><span class="dot"></span> Server online<small>v{{.Version}}</small></div>
   </aside>
   <main>
