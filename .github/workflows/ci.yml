@@ -126,7 +126,7 @@ jobs:
           bootstrap="$(curl --fail --silent http://127.0.0.1:18090/boot/discovery.ipxe)"
           grep -Fq '#!ipxe' <<<"$bootstrap"
           grep -Fq 'api/v1/discovery.ipxe?mac=${net0/mac}' <<<"$bootstrap"
-          if grep -Fq '##params' <<<"$bootstrap" || grep -Fq $'\nparams\n' <<<"$bootstrap"; then
+          if grep -Fq '##params' <<<"$bootstrap" || grep -Fxq 'params' <<<"$bootstrap" || grep -Eq '^param[[:space:]]' <<<"$bootstrap"; then
             echo 'bootstrap unexpectedly requires optional iPXE PARAM_CMD' >&2
             exit 1
           fi
