@@ -28,6 +28,9 @@ jobs:
           unformatted="$(gofmt -l cmd internal)"
           if [[ -n "$unformatted" ]]; then
             printf 'gofmt required for:\n%s\n' "$unformatted"
+            while IFS= read -r file; do
+              [[ -n "$file" ]] && gofmt -d "$file"
+            done <<<"$unformatted"
             exit 1
           fi
           go test ./...
