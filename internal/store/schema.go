@@ -45,6 +45,23 @@ func (s *Store) initialize(ctx context.Context) error {
 			PRIMARY KEY(machine_id, kind, value),
 			UNIQUE(kind, value)
 		)`,
+		`CREATE TABLE IF NOT EXISTS installation_specs (
+			id TEXT PRIMARY KEY,
+			machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE RESTRICT,
+			driver_id TEXT NOT NULL,
+			driver_version TEXT NOT NULL,
+			os_release TEXT NOT NULL,
+			architecture TEXT NOT NULL,
+			profile_id TEXT NOT NULL,
+			profile_revision TEXT NOT NULL,
+			artifacts_json TEXT NOT NULL,
+			storage_json TEXT NOT NULL,
+			security_json TEXT NOT NULL,
+			lifecycle_credential_id TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			created_by TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_installation_specs_machine ON installation_specs(machine_id, created_at)`,
 		`CREATE TABLE IF NOT EXISTS events (
 			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
 			entity_type TEXT NOT NULL,
