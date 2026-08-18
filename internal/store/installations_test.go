@@ -31,7 +31,7 @@ func TestInstallationSpecRoundTripIsImmutableSnapshot(t *testing.T) {
 		ProfileRevision:       "rev_standard_1",
 		Profile:               installationProfile(),
 		Artifacts:             []installation.Artifact{installationArtifact("linux", "a"), installationArtifact("initrd.gz", "b")},
-		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
+		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		Security:              installation.Security{AutomaticSecurityUpdates: true},
 		LifecycleCredentialID: "cred_1",
 		CreatedBy:             "system:test",
@@ -81,7 +81,7 @@ func TestInstallationSpecRejectsCallerAssignedIdentity(t *testing.T) {
 		ProfileRevision:       "rev_standard_1",
 		Profile:               installationProfile(),
 		Artifacts:             []installation.Artifact{installationArtifact("linux", "a")},
-		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
+		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		LifecycleCredentialID: "cred_1",
 		CreatedBy:             "system:test",
 	}
@@ -103,7 +103,7 @@ func TestInstallationSpecRequiresExistingMachine(t *testing.T) {
 		ProfileRevision:       "rev_standard_1",
 		Profile:               installationProfile(),
 		Artifacts:             []installation.Artifact{installationArtifact("linux", "a")},
-		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
+		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		LifecycleCredentialID: "cred_1",
 		CreatedBy:             "system:test",
 	}, "req_install")
