@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	sessionCookieName       = "aegispxe_operator_session"
-	maxFormBody             = 96 << 10
-	builtinProfileID        = "builtin:debian13-standard"
-	builtinProfileRevision  = "1"
+	sessionCookieName      = "aegispxe_operator_session"
+	maxFormBody            = 96 << 10
+	builtinProfileID       = "builtin:debian13-standard"
+	builtinProfileRevision = "1"
 )
 
 type debianArtifactResolver interface {
