@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.25.x
+
+      - name: Verify tag and version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          expected_tag="v${version}"
+
+          if [ "$GITHUB_REF_NAME" != "$expected_tag" ]; then
+            echo "Release tag '$GITHUB_REF_NAME' does not match VERSION '$version' (expected '$expected_tag')." >&2
+            exit 1
+          fi
+
+          git fetch origin main --no-tags
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release tag must point to a commit reachable from main." >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l cmd internal)"
+          if [ -n "$unformatted" ]; then
+            echo "Go files requiring gofmt:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+          go test ./...
+          go vet ./...
+
+      - name: Build Debian packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+
+          for arch in amd64 arm64; do
+            DEB_ARCH="$arch" bash scripts/build-deb.sh
+          done
+
+          version="${{ steps.version.outputs.version }}"
+          for arch in amd64 arm64; do
+            deb="dist/aegispxe_${version}_${arch}.deb"
+            test -f "$deb"
+            test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
+            test "$(dpkg-deb --field "$deb" Version)" = "$version"
+            test "$(dpkg-deb --field "$deb" Architecture)" = "$arch"
+          done
+
+          (
+            cd dist
+            sha256sum aegispxe_*.deb > SHA256SUMS
+          )
+
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+
+          gh release create "$GITHUB_REF_NAME" \
+            dist/aegispxe_*.deb \
+            dist/SHA256SUMS \
+            --verify-tag \
+            --prerelease \
+            --generate-notes \
+            --title "AegisPXE ${version}"
