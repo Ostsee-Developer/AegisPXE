@@ -1,10 +1,12 @@
 package debian13
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 
 	"github.com/Ostsee-Developer/AegisPXE/internal/installation"
+	"github.com/Ostsee-Developer/AegisPXE/internal/profile"
 )
 
 func TestRenderBootIsDeterministicAndSecretFree(t *testing.T) {
@@ -56,6 +58,7 @@ func TestValidateSpecRejectsDifferentDriverContractVersion(t *testing.T) {
 }
 
 func validInstallationSpec() installation.Spec {
+	keyPayload := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 64)))
 	return installation.Spec{
 		ID:              "i_test",
 		MachineID:       "m_test",
@@ -65,6 +68,19 @@ func validInstallationSpec() installation.Spec {
 		Architecture:    debianArch,
 		ProfileID:       "standard",
 		ProfileRevision: "rev_standard_1",
+		Profile: profile.Snapshot{
+			SchemaVersion: profile.SchemaVersion,
+			Hostname:      "aegis-node",
+			Locale:        "de_DE.UTF-8",
+			Keyboard:      "de",
+			Timezone:      "Europe/Berlin",
+			Admin: profile.Admin{
+				Username:          "guardian",
+				FullName:          "Aegis Administrator",
+				AuthorizedSSHKeys: []string{"ssh-ed25519 " + keyPayload + " test"},
+			},
+			Packages: []string{"jq"},
+		},
 		Artifacts: []installation.Artifact{
 			{
 				ID:         "debian13-amd64-netboot-linux",
