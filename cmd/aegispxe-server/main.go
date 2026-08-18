@@ -20,7 +20,9 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
 )
 
-var version = "0.0.2-dev"
+// version is injected from the repository VERSION file by scripts/build.sh.
+// The fallback identifies binaries built directly with `go build` as non-release builds.
+var version = "dev"
 
 func main() {
 	showVersion := flag.Bool("version", false, "print version")
