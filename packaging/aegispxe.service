@@ -1,0 +1,35 @@
+[Unit]
+Description=AegisPXE provisioning control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/aegispxe/aegispxe-server
+EnvironmentFile=-/etc/aegispxe/aegispxe.env
+Restart=on-failure
+RestartSec=2s
+User=aegispxe
+Group=aegispxe
+StateDirectory=aegispxe
+RuntimeDirectory=aegispxe
+LogsDirectory=aegispxe
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

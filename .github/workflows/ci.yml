@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.25.x
+      - name: Verify Go
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l cmd internal)"
+          if [ -n "$unformatted" ]; then
+            echo "Go files requiring gofmt:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+          go test ./...
+          go vet ./...
+          go build ./cmd/aegispxe-server
+
+  package-smoke:
+    needs: go
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.25.x
+      - name: Build and install package
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build-deb.sh
+          deb="$(find dist -maxdepth 1 -name 'aegispxe_*.deb' -print -quit)"
+          test -n "$deb"
+          test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
+          test "$(dpkg-deb --field "$deb" Version)" = "$(tr -d '[:space:]' < VERSION)"
+          contents="$(dpkg-deb --contents "$deb")"
+          grep -Fq './usr/lib/aegispxe/aegispxe-server' <<<"$contents"
+          grep -Fq './lib/systemd/system/aegispxe.service' <<<"$contents"
+          sudo dpkg -i "$deb"
+          test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(tr -d '[:space:]' < VERSION)"
+          sudo systemctl is-active --quiet aegispxe.service
+          test "$(stat -c '%U:%G' /var/lib/aegispxe)" = "aegispxe:aegispxe"
+      - name: Exercise packaged health endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          db="$(mktemp)"
+          AEGISPXE_DB="$db" AEGISPXE_LISTEN=127.0.0.1:18090 /usr/lib/aegispxe/aegispxe-server >/tmp/aegispxe-smoke.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 20); do
+            body="$(curl --fail --silent http://127.0.0.1:18090/healthz 2>/dev/null || true)"
+            if grep -Fq '"status":"ok"' <<<"$body"; then
+              exit 0
+            fi
+            sleep 0.25
+          done
+          cat /tmp/aegispxe-smoke.log
+          exit 1
+      - name: Verify remove preserves state
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo touch /var/lib/aegispxe/package-smoke-state
+          sudo dpkg -r aegispxe
+          test -e /var/lib/aegispxe/package-smoke-state
