@@ -41,6 +41,25 @@ Administrative cancellation and expiry are terminal states distinct from runtime
 - `CANCELLED`
 - `EXPIRED`
 
+## Assignment and trust before lifecycle start
+
+The immutable InstallationSpec exists before runtime lifecycle progress begins. An operator may then arm an Assignment that binds exactly one Machine to that InstallationSpec.
+
+Assignment state is administrative/runtime control state, not inferred installer progress:
+
+```text
+unassigned
+  -> armed
+       -> consumed
+       -> cancelled
+```
+
+Arming emits an auditable `INSTALLATION_ARMED` record. Cancellation emits `INSTALLATION_ASSIGNMENT_CANCELLED`.
+
+An armed Assignment plus operator approval may make non-secret public boot material eligible. It does not authenticate the booting client and does not authorize release of lifecycle credentials.
+
+Secret-bearing installer operations require cryptographic boot trust. The Assignment is consumed only when the server accepts an authenticated `INSTALLER_STARTED` event for the exact assigned Installation.
+
 ## Event shape
 
 Every installation event contains at least:
@@ -80,9 +99,9 @@ Lifecycle state does not regress. Duplicate events are handled idempotently. Out
 
 ## Boot assignment consumption
 
-The provisioning assignment remains armed through firmware retries, bootloader fetches and seed reads.
+The provisioning assignment remains armed through firmware retries, bootloader fetches, initrd/preseed construction and reads of non-secret boot material.
 
-It is consumed only after the server accepts an authenticated `INSTALLER_STARTED` event for the currently assigned installation.
+It is consumed only after the server accepts an authenticated `INSTALLER_STARTED` event for the currently assigned installation. Authentication must satisfy the provisioning trust contract; discovery identifiers alone are insufficient.
 
 Consumption creates its own auditable state mutation.
 
@@ -116,4 +135,4 @@ Examples:
 
 ## UI projection
 
-The Studio timeline displays accepted events in sequence order. It may show elapsed time and expectations, but it must visually distinguish those from authoritative state and must never manufacture completed stages.
+The Studio timeline displays accepted events in sequence order. It may show elapsed time, assignment state and trust gates, but it must visually distinguish those from authoritative lifecycle state and must never manufacture completed stages.
