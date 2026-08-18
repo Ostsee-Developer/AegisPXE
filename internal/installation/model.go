@@ -3,6 +3,7 @@ package installation
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -10,11 +11,14 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/profile"
 )
 
+var targetDiskPattern = regexp.MustCompile(`^/dev/(?:sd[a-z]|vd[a-z]|xvd[a-z]|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$`)
+
 type Artifact = artifact.Descriptor
 
 type Storage struct {
 	Mode       string
 	Filesystem string
+	TargetDisk string
 	Encrypted  bool
 	TPM2       bool
 }
@@ -94,6 +98,9 @@ func (s Spec) Validate() error {
 	}
 	if len(s.Storage.Mode) > 64 || len(s.Storage.Filesystem) > 64 {
 		return errors.New("storage metadata exceeds size limit")
+	}
+	if !targetDiskPattern.MatchString(s.Storage.TargetDisk) {
+		return errors.New("storage target disk is invalid or refers to a partition")
 	}
 	if s.Storage.TPM2 && !s.Storage.Encrypted {
 		return errors.New("TPM2 enrollment requires encrypted storage")
