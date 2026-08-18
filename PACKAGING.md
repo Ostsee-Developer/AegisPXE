@@ -42,7 +42,9 @@ Every push to `main` runs the release workflow. The workflow reads `VERSION` and
 - If `VERSION` is higher, all release gates and package builds must succeed before the workflow creates or verifies the matching `v<VERSION>` tag and publishes the release.
 - If a previous run created the tag but failed before publishing the release, a later run may resume only when that tag still points at the current `main` commit.
 
-This makes changing `VERSION` and pushing to `main` the only required release operation. Manual tag creation is not part of the normal release path.
+This makes changing `VERSION` and pushing to `main` the only required release operation. Manual tag creation is not part of the normal release path. The workflow may also be started manually for recovery, but it performs the exact same version checks and cannot force a duplicate or downgrade release.
+
+The release workflow performs tagging and publication in the same workflow run. It does not depend on the generated tag starting a second workflow.
 
 ## Required package responsibilities
 
