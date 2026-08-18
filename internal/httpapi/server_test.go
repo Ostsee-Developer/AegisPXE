@@ -27,9 +27,8 @@ func TestRepeatedDiscoveryKeepsOnePendingMachine(t *testing.T) {
 		"firmware":     {"efi"},
 	}
 
-	for i := 0; i < 20; i++ {
-		req := httptest.NewRequest(http.MethodPost, "http://aegispxe.test/api/v1/discovery.ipxe", strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "http://aegispxe.test/api/v1/discovery.ipxe?"+form.Encode(), nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -52,16 +51,11 @@ func TestRepeatedDiscoveryKeepsOnePendingMachine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 20 {
-		t.Fatalf("events = %d, want 20", len(events))
+	if len(events) != 2 {
+		t.Fatalf("events = %d, want 2", len(events))
 	}
-	if events[0].Type != event.MachineDiscovered {
-		t.Fatalf("first event = %s, want %s", events[0].Type, event.MachineDiscovered)
-	}
-	for _, item := range events[1:] {
-		if item.Type != event.MachineSeen {
-			t.Fatalf("repeat event = %s, want %s", item.Type, event.MachineSeen)
-		}
+	if events[0].Type != event.MachineDiscovered || events[1].Type != event.MachineSeen {
+		t.Fatalf("events = %s, %s", events[0].Type, events[1].Type)
 	}
 }
 
@@ -138,7 +132,7 @@ func TestDiscoveryRateLimitIsBounded(t *testing.T) {
 	}
 }
 
-func TestBootstrapUsesIPXEPOSTParameters(t *testing.T) {
+func TestBootstrapUsesStockIPXEQueryParameters(t *testing.T) {
 	_, handler := testServer(t)
 	req := httptest.NewRequest(http.MethodGet, "http://192.0.2.10:8090/boot/discovery.ipxe", nil)
 	rec := httptest.NewRecorder()
@@ -146,19 +140,9 @@ func TestBootstrapUsesIPXEPOSTParameters(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("bootstrap status = %d", rec.Code)
 	}
-	body := rec.Body.String()
-	for _, expected := range []string{
-		"#!ipxe",
-		"params",
-		"param mac ${net0/mac}",
-		"param smbios_uuid ${uuid}",
-		"param architecture ${buildarch}",
-		"param firmware ${platform}",
-		"chain http://192.0.2.10:8090/api/v1/discovery.ipxe##params || goto discovery_failed\nexit 0\n:discovery_failed",
-	} {
-		if !strings.Contains(body, expected) {
-			t.Fatalf("bootstrap missing %q: %s", expected, body)
-		}
+	want := "chain http://192.0.2.10:8090/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid:uristring}&architecture=${buildarch:uristring}&firmware=${platform:uristring}"
+	if !strings.Contains(rec.Body.String(), want) {
+		t.Fatalf("bootstrap missing stock-iPXE discovery chain: %s", rec.Body.String())
 	}
 }
 

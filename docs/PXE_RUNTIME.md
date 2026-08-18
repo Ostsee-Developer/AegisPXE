@@ -1,6 +1,6 @@
 # PXE Runtime Bootstrap
 
-AegisPXE 0.0.3-dev.3 makes the stage-1 PXE runtime part of the Debian package installation path.
+AegisPXE 0.0.3-dev.4 makes the stage-1 PXE runtime part of the Debian package installation path and treats the distribution-provided iPXE binary as the compatibility baseline.
 
 ## Runtime dependencies
 
@@ -11,6 +11,8 @@ The `aegispxe` Debian package depends on:
 - `adduser`, which is used for the unprivileged AegisPXE service account.
 
 The Debian `ipxe` package is the source of the bootloader binaries. AegisPXE does not vendor or silently replace those binaries.
+
+AegisPXE bootstrap scripts must work with the commands available in the distribution-provided iPXE package. Optional compile-time commands are not part of the runtime contract. In particular, discovery must not require the optional `PARAM_CMD` feature (`params`/`param`). The stock discovery path passes bounded observations in a dynamic HTTP query string instead.
 
 ## TFTP root discovery
 

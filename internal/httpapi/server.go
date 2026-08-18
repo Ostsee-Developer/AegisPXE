@@ -93,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /boot/discovery.ipxe", s.discoveryBootstrap)
 	mux.HandleFunc("POST /api/v1/discovery", s.discoveryJSON)
+	mux.HandleFunc("GET /api/v1/discovery.ipxe", s.discoveryIPXE)
 	mux.HandleFunc("POST /api/v1/discovery.ipxe", s.discoveryIPXE)
 	mux.HandleFunc("GET /api/v1/machines", s.machines)
 	mux.HandleFunc("GET /api/v1/machines/{id}", s.machine)
@@ -179,16 +180,11 @@ func (s *Server) discover(ctx context.Context, observation machine.Observation, 
 
 func (s *Server) discoveryBootstrap(w http.ResponseWriter, r *http.Request) {
 	base := requestBaseURL(r)
-	endpoint := base + "/api/v1/discovery.ipxe##params"
+	endpoint := base + "/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid:uristring}&architecture=${buildarch:uristring}&firmware=${platform:uristring}"
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = fmt.Fprintf(w, "#!ipxe\n")
 	_, _ = fmt.Fprintf(w, "echo AegisPXE headless discovery\n")
-	_, _ = fmt.Fprintf(w, "params\n")
-	_, _ = fmt.Fprintf(w, "param mac ${net0/mac}\n")
-	_, _ = fmt.Fprintf(w, "param smbios_uuid ${uuid}\n")
-	_, _ = fmt.Fprintf(w, "param architecture ${buildarch}\n")
-	_, _ = fmt.Fprintf(w, "param firmware ${platform}\n")
 	_, _ = fmt.Fprintf(w, "chain %s || goto discovery_failed\n", endpoint)
 	_, _ = fmt.Fprintf(w, "exit 0\n")
 	_, _ = fmt.Fprintf(w, ":discovery_failed\n")
@@ -299,10 +295,10 @@ func decodeObservation(w http.ResponseWriter, r *http.Request) (machine.Observat
 		return machine.Observation{}, fmt.Errorf("decode discovery form: %w", err)
 	}
 	return machine.Observation{
-		MAC:          r.PostForm.Get("mac"),
-		SMBIOSUUID:   firstNonEmpty(r.PostForm.Get("smbios_uuid"), r.PostForm.Get("uuid")),
-		Architecture: r.PostForm.Get("architecture"),
-		Firmware:     r.PostForm.Get("firmware"),
+		MAC:          r.Form.Get("mac"),
+		SMBIOSUUID:   firstNonEmpty(r.Form.Get("smbios_uuid"), r.Form.Get("uuid")),
+		Architecture: r.Form.Get("architecture"),
+		Firmware:     r.Form.Get("firmware"),
 	}, nil
 }
 
