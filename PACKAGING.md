@@ -16,6 +16,14 @@ The first supported package target is Debian-family hosts using `dpkg`/APT. The 
 
 The project may add repository metadata later, but the `.deb` artifact exists before public repository distribution.
 
+## Version source of truth
+
+The repository-root `VERSION` file is the single source of truth for the AegisPXE application version.
+
+Release tags, package metadata, artifact names and embedded binary versions must derive from that file. Version strings must not be duplicated in source code or workflow configuration. `scripts/build.sh` is the canonical binary build entry point and injects the `VERSION` value into the executable. A binary built directly with raw `go build` is intentionally identified as a non-release `dev` build.
+
+Changing the project version therefore requires changing only `VERSION`; CI and release gates verify that generated artifacts agree with it.
+
 ## Required package responsibilities
 
 The package owns installation and upgrade of AegisPXE application files, including:
