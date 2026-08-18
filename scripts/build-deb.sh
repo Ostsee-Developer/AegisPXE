@@ -30,6 +30,7 @@ GOARCH="$GOARCH" \
 CGO_ENABLED=0 \
 bash scripts/build.sh >/dev/null
 
+install -m 0755 packaging/install-pxe-assets.sh "$PKG_ROOT/usr/lib/aegispxe/install-pxe-assets"
 install -m 0644 packaging/aegispxe.env "$PKG_ROOT/etc/aegispxe/aegispxe.env"
 install -m 0644 packaging/aegispxe.service "$PKG_ROOT/lib/systemd/system/aegispxe.service"
 printf '/etc/aegispxe/aegispxe.env\n' > "$PKG_ROOT/DEBIAN/conffiles"
@@ -53,6 +54,9 @@ if ! getent group aegispxe >/dev/null 2>&1; then
 fi
 if ! getent passwd aegispxe >/dev/null 2>&1; then
   adduser --system --ingroup aegispxe --no-create-home --home /nonexistent --shell /usr/sbin/nologin aegispxe
+fi
+if [ -x /usr/lib/aegispxe/install-pxe-assets ]; then
+  /usr/lib/aegispxe/install-pxe-assets
 fi
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
   systemctl daemon-reload
