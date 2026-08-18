@@ -72,6 +72,7 @@ func validSpec() Spec {
 				Username:          "guardian",
 				FullName:          "Aegis Administrator",
 				AuthorizedSSHKeys: []string{validPublicKey()},
+				PasswordlessSudo:  true,
 			},
 			Packages: []string{"jq"},
 		},
