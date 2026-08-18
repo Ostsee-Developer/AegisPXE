@@ -30,11 +30,24 @@ AegisPXE is implemented in Go and initially targets:
 
 ## 0.0.3 discovery milestone
 
-The headless discovery milestone is proven on a packaged installation with real UEFI PXE clients. Unknown machines register as `pending`, repeated boots resolve to the same machine, identity conflicts and invalid identities fail closed, and correlated audit/log records remain available across package reinstall.
+The headless discovery milestone is proven on a packaged installation with real UEFI PXE clients. Unknown machines register as `pending`, repeated boots resolve to the same machine ID and append discovery events rather than creating duplicates. Identity conflicts and invalid identities fail closed, and correlated audit/log records remain available across package reinstall.
+
+A test machine can fetch `/boot/discovery.ipxe`, submit bounded identity observations, receive a non-provisioning server decision and appear immediately in the AegisPXE machine inventory.
 
 The Debian package installs the `ipxe` and `tftpd-hpa` runtime dependencies. When `tftpd-hpa` already has a safe absolute `TFTP_DIRECTORY`, package setup materializes `ipxe.efi` and `undionly.kpxe` into that root without overwriting a different pre-existing bootloader. See [`docs/PXE_RUNTIME.md`](docs/PXE_RUNTIME.md).
 
-The Studio is available at `/ui/` on the configured AegisPXE HTTP listener and exposes machine inventory, policy state, architecture/firmware observations, first/last seen, identifiers and the append-only machine timeline.
+The Studio is available at `/ui/` on the configured AegisPXE HTTP listener and currently exposes:
+
+- machine inventory and policy counts,
+- pending/local/provision/blocked state,
+- architecture and firmware observations,
+- first/last seen,
+- stored machine identifiers,
+- append-only machine event timeline.
+
+The UI remains intentionally read-only until operator authentication and authorization exist. The discovery milestone never exposes an installer, seed, profile or installation credential. Even policy `provision` returns a local/non-provisioning decision until a later milestone can prove an immutable InstallationSpec is armed.
+
+See [`docs/0.0.3-discovery-slice.md`](docs/0.0.3-discovery-slice.md) for the API, iPXE transport and E2E contract.
 
 ## 0.1.0 development slice
 
