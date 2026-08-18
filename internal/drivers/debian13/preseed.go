@@ -23,13 +23,13 @@ func RenderSeed(ctx context.Context, logger *slog.Logger, spec installation.Spec
 		return driver.SeedBundle{}, fault.New(fault.DriverRenderFailed, "driver render request identifier is required", nil)
 	}
 	if err := ValidateSpec(spec); err != nil {
-		logger.WarnContext(ctx, "Debian seed render rejected", "component", "driver.debian13", "operation", "render_seed", "request_id", requestID, "machine_id", spec.MachineID, "installation_id", spec.ID, "driver_id", DriverID, "driver_version", DriverVersion, "target_disk", spec.Storage.TargetDisk, "result", "rejected", "error_code", fault.DriverSpecUnsupported, "duration_ms", time.Since(started).Milliseconds())
+		logger.WarnContext(ctx, "Debian seed render rejected", "component", "driver.debian13", "operation", "render_seed", "request_id", requestID, "machine_id", spec.MachineID, "installation_id", spec.ID, "driver_id", DriverID, "driver_version", DriverVersion, "target_disk", spec.Storage.TargetDisk, "result", "rejected", "error_code", fault.DriverSpecUnsupported, "cause", err.Error(), "duration_ms", time.Since(started).Milliseconds())
 		return driver.SeedBundle{}, fault.New(fault.DriverSpecUnsupported, "installation spec is unsupported by Debian 13 Standard", err)
 	}
 
 	bundle, err := renderPreseed(spec)
 	if err != nil {
-		logger.ErrorContext(ctx, "Debian seed render failed", "component", "driver.debian13", "operation", "render_seed", "request_id", requestID, "machine_id", spec.MachineID, "installation_id", spec.ID, "driver_id", DriverID, "driver_version", DriverVersion, "target_disk", spec.Storage.TargetDisk, "result", "failure", "error_code", fault.DriverRenderFailed, "duration_ms", time.Since(started).Milliseconds())
+		logger.ErrorContext(ctx, "Debian seed render failed", "component", "driver.debian13", "operation", "render_seed", "request_id", requestID, "machine_id", spec.MachineID, "installation_id", spec.ID, "driver_id", DriverID, "driver_version", DriverVersion, "target_disk", spec.Storage.TargetDisk, "result", "failure", "error_code", fault.DriverRenderFailed, "cause", err.Error(), "duration_ms", time.Since(started).Milliseconds())
 		return driver.SeedBundle{}, fault.New(fault.DriverRenderFailed, "could not render Debian installer seed", err)
 	}
 
