@@ -52,6 +52,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			event_type TEXT NOT NULL,
 			occurred_at TEXT NOT NULL,
 			request_id TEXT NOT NULL DEFAULT '',
+			actor TEXT NOT NULL DEFAULT '',
 			message TEXT NOT NULL DEFAULT '',
 			error_code TEXT NOT NULL DEFAULT ''
 		)`,
