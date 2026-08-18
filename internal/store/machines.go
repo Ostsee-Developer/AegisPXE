@@ -35,7 +35,7 @@ func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observa
 	identifiers, err := observation.Identifiers()
 	if err != nil {
 		wrapped := fault.New(fault.MachineIdentityInvalid, "machine identity is invalid", err)
-		s.logger.WarnContext(ctx, "machine observation rejected", "component", "store.machine", "operation", "discover", "request_id", requestID, "error_code", fault.Code(wrapped))
+		s.logger.WarnContext(ctx, "machine observation rejected", "component", "store.machine", "operation", "discover", "request_id", requestID, "error_code", fault.Code(wrapped), "cause", err.Error())
 		return machine.Machine{}, false, wrapped
 	}
 
