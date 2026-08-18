@@ -44,7 +44,7 @@ func TestInstallationDetailShowsTrustWithoutCredentialOrSSHKeyMaterial(t *testin
 			},
 			Packages: []string{"jq"},
 		},
-		Artifacts: []installation.Artifact{{ID: "kernel", Name: "linux", Digest: "sha256:" + strings.Repeat("a", 64), Size: 4096, Version: "installer-1", Provenance: "debian:trixie:test"}},
+		Artifacts:             []installation.Artifact{{ID: "kernel", Name: "linux", Digest: "sha256:" + strings.Repeat("a", 64), Size: 4096, Version: "installer-1", Provenance: "debian:trixie:test"}},
 		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		Security:              installation.Security{AutomaticSecurityUpdates: true},
 		LifecycleCredentialID: "cred_must_not_render",
@@ -56,7 +56,7 @@ func TestInstallationDetailShowsTrustWithoutCredentialOrSSHKeyMaterial(t *testin
 		machine:    machineRecord,
 		spec:       spec,
 		assignment: assignmentRecord,
-		events: []event.Event{{EntityType: event.EntityInstallation, EntityID: spec.ID, Type: event.InstallationArmed, OccurredAt: now, Actor: "test:operator", RequestID: "req_test", Message: "installation armed"}},
+		events:     []event.Event{{EntityType: event.EntityInstallation, EntityID: spec.ID, Type: event.InstallationArmed, OccurredAt: now, Actor: "test:operator", RequestID: "req_test", Message: "installation armed"}},
 	}
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	ui := New(store, logger, "test")
