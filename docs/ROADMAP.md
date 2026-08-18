@@ -12,6 +12,7 @@ The roadmap is deliberately vertical. A milestone is complete only when its succ
 - lifecycle model,
 - driver contract,
 - testing contract,
+- Debian packaging contract,
 - ADR process,
 - contribution/agent rules.
 
@@ -22,7 +23,12 @@ The roadmap is deliberately vertical. A milestone is complete only when its succ
 - `pending/local/provision/blocked` policy,
 - append-only machine/audit events,
 - structured logging,
-- persistence.
+- persistence,
+- first executable `aegispxe` Go service,
+- native `.deb` build from CI,
+- clean package install test on a fresh supported Debian environment.
+
+The `.deb` is part of the implementation path from this milestone onward. A source-tree-only success does not satisfy the gate.
 
 ### 0.0.3 Headless PXE discovery E2E
 
@@ -31,7 +37,8 @@ The roadmap is deliberately vertical. A milestone is complete only when its succ
 - repeat boot does not duplicate the machine,
 - no provisioning material is exposed,
 - client leaves the provisioning path,
-- complete correlated logs available.
+- complete correlated logs available,
+- E2E runs against the packaged installation rather than an ad-hoc source checkout.
 
 Gate: repeated discovery E2E, target 20 clean repetitions plus identity-conflict/failure tests.
 
@@ -47,7 +54,7 @@ Gate: repeated discovery E2E, target 20 clean repetitions plus identity-conflict
 - desired-state validation,
 - headless local boot after terminal state.
 
-Gate: 10 consecutive unattended E2E successes and useful telemetry for intentionally failed runs.
+Gate: 10 consecutive unattended E2E successes and useful telemetry for intentionally failed runs, using a clean AegisPXE `.deb` installation.
 
 ## 0.2.0: Debian 13 Encrypted
 
