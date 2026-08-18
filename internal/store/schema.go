@@ -30,7 +30,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			version INTEGER NOT NULL
 		)`,
 		`INSERT INTO schema_meta(version)
-		 SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
+		 SELECT 2 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
 		`CREATE TABLE IF NOT EXISTS machines (
 			id TEXT PRIMARY KEY,
 			policy TEXT NOT NULL CHECK(policy IN ('pending','local','provision','blocked')),
