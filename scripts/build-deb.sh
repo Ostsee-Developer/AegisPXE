@@ -42,7 +42,7 @@ Section: admin
 Priority: optional
 Architecture: $DEB_ARCH
 Maintainer: Ostsee-Developer
-Depends: adduser, ipxe, tftpd-hpa
+Depends: adduser, ipxe, tftpd-hpa, gpgv, debian-archive-keyring
 Description: Security-first headless PXE provisioning control plane
 EOF
 
