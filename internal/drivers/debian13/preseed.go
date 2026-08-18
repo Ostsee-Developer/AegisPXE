@@ -140,37 +140,45 @@ func renderLateCommand(spec installation.Spec) (string, error) {
 	}
 
 	logPath := "/target/var/log/aegispxe-installer.log"
+	marker := func(step, result string) string {
+		return "printf '%s\\n' " + shellQuote("component=aegispxe step="+step+" result="+result) + " >> " + shellQuote(logPath)
+	}
 	commands := []string{
 		"set -e",
 		"install -d -m 0755 /target/var/log",
-		"AEGIS_LOG=" + shellQuote(logPath),
-		"AEGIS_RESULT=failure",
-		"trap 'rc=$?; printf \"component=aegispxe step=late_command result=%s rc=%s\\n\" \"$AEGIS_RESULT\" \"$rc\" >> \"$AEGIS_LOG\"' EXIT",
-		"printf '%s\\n' 'component=aegispxe step=late_command result=started' >> \"$AEGIS_LOG\"",
+		marker("late_command", "started"),
+		marker("authorized_keys", "started"),
 		"in-target install -d -m 0700 -o " + username + " -g " + username + " /home/" + username + "/.ssh",
 		"printf '%s\\n' " + strings.Join(keyArgs, " ") + " > /target/home/" + username + "/.ssh/authorized_keys",
 		"in-target chown " + username + ":" + username + " /home/" + username + "/.ssh/authorized_keys",
 		"in-target chmod 0600 /home/" + username + "/.ssh/authorized_keys",
+		marker("authorized_keys", "success"),
+		marker("sudo", "started"),
 		"in-target usermod -aG sudo " + username,
 		"printf '%s\\n' " + shellQuote(username+" ALL=(ALL:ALL) NOPASSWD: ALL") + " > /target/etc/sudoers.d/90-aegispxe-admin",
 		"chmod 0440 /target/etc/sudoers.d/90-aegispxe-admin",
-		"printf '%s\\n' 'component=aegispxe step=validate_sudoers result=started' >> \"$AEGIS_LOG\"",
+		marker("sudo", "success"),
+		marker("validate_sudoers", "started"),
 		"in-target visudo -cf /etc/sudoers.d/90-aegispxe-admin",
-		"printf '%s\\n' 'component=aegispxe step=validate_sudoers result=success' >> \"$AEGIS_LOG\"",
+		marker("validate_sudoers", "success"),
+		marker("sshd_config", "started"),
 		"mkdir -p /target/etc/ssh/sshd_config.d",
 		"printf '%s\\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' 'PermitEmptyPasswords no' 'PermitRootLogin no' 'PubkeyAuthentication yes' > /target/etc/ssh/sshd_config.d/90-aegispxe.conf",
 		"chmod 0644 /target/etc/ssh/sshd_config.d/90-aegispxe.conf",
 		"in-target usermod -p NP " + username,
-		"printf '%s\\n' 'component=aegispxe step=prepare_sshd_runtime result=started' >> \"$AEGIS_LOG\"",
+		marker("sshd_config", "success"),
+		marker("prepare_sshd_runtime", "started"),
 		"in-target install -d -m 0755 /run/sshd",
 		"in-target ssh-keygen -A",
-		"printf '%s\\n' 'component=aegispxe step=prepare_sshd_runtime result=success' >> \"$AEGIS_LOG\"",
-		"printf '%s\\n' 'component=aegispxe step=validate_sshd result=started' >> \"$AEGIS_LOG\"",
+		marker("prepare_sshd_runtime", "success"),
+		marker("validate_sshd", "started"),
 		"in-target sshd -t",
-		"printf '%s\\n' 'component=aegispxe step=validate_sshd result=success' >> \"$AEGIS_LOG\"",
+		marker("validate_sshd", "success"),
+		marker("automatic_updates", "started"),
 		"printf '%s\\n' 'APT::Periodic::Update-Package-Lists \"1\";' 'APT::Periodic::Unattended-Upgrade \"1\";' > /target/etc/apt/apt.conf.d/20auto-upgrades",
 		"chmod 0644 /target/etc/apt/apt.conf.d/20auto-upgrades",
-		"AEGIS_RESULT=success",
+		marker("automatic_updates", "success"),
+		marker("late_command", "success"),
 	}
 	return strings.Join(commands, "; "), nil
 }
