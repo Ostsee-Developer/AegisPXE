@@ -53,9 +53,11 @@ See [`docs/0.0.3-discovery-slice.md`](docs/0.0.3-discovery-slice.md) for the API
 
 Development now targets **Debian 13 Standard**. `0.1.0-dev.1` introduced the immutable `InstallationSpec` foundation: server-assigned installation identity, pinned driver/profile revisions, storage/security snapshots, non-secret lifecycle credential identity and atomic `INSTALLATION_CREATED` audit output.
 
-`0.1.0-dev.2` adds the first Debian 13 driver artifact path. AegisPXE verifies Debian's signed `trixie/InRelease`, resolves the moving installer alias to a versioned installer build, verifies the trusted `SHA256SUMS`, then verifies the actual amd64 netboot `linux` and `initrd.gz` bytes. InstallationSpecs now pin the versioned source URL, installer version, SHA-256 digest, byte size and provenance for each artifact.
+`0.1.0-dev.2` added Debian 13 artifact trust. AegisPXE verifies Debian's signed `trixie/InRelease`, resolves the moving installer alias to a versioned installer build, verifies the trusted `SHA256SUMS`, then verifies the actual amd64 netboot `linux` and `initrd.gz` bytes. InstallationSpecs pin the versioned source URL, installer version, SHA-256 digest, byte size and provenance for each artifact.
 
-This slice still exposes no administrative creation endpoint and boots no installer yet. Creating or arming installations remains unavailable until an explicit authenticated operator boundary exists. See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md) and [`docs/0.1.0-artifact-verification.md`](docs/0.1.0-artifact-verification.md).
+`0.1.0-dev.3` completes the two-spec boundary. `InstallationSpec` remains the immutable authoritative assignment, with unique artifact roles and an independent driver contract version. The Debian 13 driver validates that contract and deterministically renders a typed `BootSpec` containing only digest-pinned kernel/initrd references, bounded public kernel arguments and a non-secret seed reference. BootSpec is not persisted as a second source of truth.
+
+This slice still exposes no administrative creation endpoint and boots no installer yet. Creating or arming installations remains unavailable until an explicit authenticated operator boundary exists. See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md), [`docs/0.1.0-artifact-verification.md`](docs/0.1.0-artifact-verification.md) and [`docs/0.1.0-boot-spec.md`](docs/0.1.0-boot-spec.md).
 
 ## Project constitution
 
@@ -82,4 +84,4 @@ The Project Constitution workflow verifies that foundational contracts remain pr
 
 **0.1.0: Debian 13 Standard.**
 
-The current development step is trusted Debian 13 artifact resolution and verification. The next vertical step will persist verified installer artifacts and render the first typed Debian boot specification without yet pretending that an installer has started.
+The current development step is the immutable InstallationSpec + derived BootSpec contract. The next vertical slice can add persistent verified artifact serving and Debian unattended seed rendering without changing the authoritative spec model.
