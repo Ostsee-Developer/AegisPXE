@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -42,10 +43,6 @@ func (m *Manager) IssueSession(actor string) (string, Session, error) {
 		CSRFToken: csrf,
 		ExpiresAt: now.Add(SessionDuration),
 	}
-	m.sessions[sha256Digest(token)] = sessionRecord{Session: session}
+	m.sessions[sha256.Sum256([]byte(token))] = sessionRecord{Session: session}
 	return token, session, nil
-}
-
-func sha256Digest(value string) [32]byte {
-	return sha256Sum([]byte(value))
 }
