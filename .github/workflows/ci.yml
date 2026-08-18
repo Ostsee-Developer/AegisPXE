@@ -57,6 +57,8 @@ jobs:
           grep -Fq './lib/systemd/system/aegispxe.service' <<<"$contents"
           sudo dpkg -i "$deb"
           test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(tr -d '[:space:]' < VERSION)"
+          sudo systemctl is-active --quiet aegispxe.service
+          test "$(stat -c '%U:%G' /var/lib/aegispxe)" = "aegispxe:aegispxe"
       - name: Exercise packaged health endpoint
         shell: bash
         run: |
@@ -78,7 +80,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo install -d -m 0755 /var/lib/aegispxe
           sudo touch /var/lib/aegispxe/package-smoke-state
           sudo dpkg -r aegispxe
           test -e /var/lib/aegispxe/package-smoke-state
