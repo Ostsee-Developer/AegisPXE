@@ -31,7 +31,8 @@ jobs:
           fi
           go test ./...
           go vet ./...
-          go build ./cmd/aegispxe-server
+          OUTPUT=/tmp/aegispxe-ci-build bash scripts/build.sh >/dev/null
+          test "$(/tmp/aegispxe-ci-build -version)" = "$(bash scripts/version.sh project)"
 
   package-smoke:
     needs: go
@@ -51,12 +52,12 @@ jobs:
           deb="$(find dist -maxdepth 1 -name 'aegispxe_*.deb' -print -quit)"
           test -n "$deb"
           test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
-          test "$(dpkg-deb --field "$deb" Version)" = "$(tr -d '[:space:]' < VERSION)"
+          test "$(dpkg-deb --field "$deb" Version)" = "$(bash scripts/version.sh debian)"
           contents="$(dpkg-deb --contents "$deb")"
           grep -Fq './usr/lib/aegispxe/aegispxe-server' <<<"$contents"
           grep -Fq './lib/systemd/system/aegispxe.service' <<<"$contents"
           sudo dpkg -i "$deb"
-          test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(tr -d '[:space:]' < VERSION)"
+          test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(bash scripts/version.sh project)"
           sudo systemctl is-active --quiet aegispxe.service
           test "$(stat -c '%U:%G' /var/lib/aegispxe)" = "aegispxe:aegispxe"
       - name: Exercise packaged health endpoint
