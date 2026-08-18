@@ -47,12 +47,20 @@ func TestValidateSpecRejectsArtifactOutsideTrustedDebianOrigin(t *testing.T) {
 	}
 }
 
+func TestValidateSpecRejectsDifferentDriverContractVersion(t *testing.T) {
+	spec := validInstallationSpec()
+	spec.DriverVersion = "2"
+	if err := ValidateSpec(spec); err == nil {
+		t.Fatal("expected mismatched driver contract version to be rejected")
+	}
+}
+
 func validInstallationSpec() installation.Spec {
 	return installation.Spec{
 		ID:                    "i_test",
 		MachineID:             "m_test",
-		DriverID:              driverID,
-		DriverVersion:         "0.1.0-dev.3",
+		DriverID:              DriverID,
+		DriverVersion:         DriverVersion,
 		OSRelease:             "13",
 		Architecture:          debianArch,
 		ProfileID:             "standard",
