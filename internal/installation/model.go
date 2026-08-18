@@ -69,10 +69,20 @@ func (s Spec) Validate() error {
 	if len(s.Artifacts) > 16 {
 		return errors.New("too many installation artifacts")
 	}
+	seenIDs := make(map[string]struct{}, len(s.Artifacts))
+	seenNames := make(map[string]struct{}, len(s.Artifacts))
 	for _, item := range s.Artifacts {
 		if err := item.Validate(); err != nil {
 			return fmt.Errorf("invalid installation artifact %q: %w", item.ID, err)
 		}
+		if _, exists := seenIDs[item.ID]; exists {
+			return errors.New("installation artifacts must have unique IDs")
+		}
+		if _, exists := seenNames[item.Name]; exists {
+			return errors.New("installation artifacts must have unique names")
+		}
+		seenIDs[item.ID] = struct{}{}
+		seenNames[item.Name] = struct{}{}
 	}
 	if strings.TrimSpace(s.Storage.Mode) == "" || strings.TrimSpace(s.Storage.Filesystem) == "" {
 		return errors.New("storage mode and filesystem are required")
