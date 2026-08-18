@@ -13,7 +13,22 @@ Primary boundaries:
 - AegisPXE to upstream artifact sources,
 - AegisPXE to local secret storage.
 
-A MAC address is an identifier, not an authentication factor.
+A MAC address or SMBIOS UUID is an identifier, not an authentication factor.
+
+## Provisioning trust layers
+
+Provisioning trust is layered and must not collapse identification, authorization and authentication into one flag.
+
+1. **Discovery identity** resolves observations such as MAC/SMBIOS UUID to a Machine record. It provides no secret-bearing authority.
+2. **Operator approval** is represented by explicit provisioning intent for that Machine. It authorizes scheduling but does not authenticate a later network client.
+3. **Armed assignment** binds one Machine to one immutable InstallationSpec. At most one assignment may be armed for a Machine at a time.
+4. **Cryptographic boot trust** proves possession of a machine-bound or explicitly enrolled provisioning credential with freshness/replay protection.
+
+Operator approval plus an armed assignment may authorize delivery of non-secret public boot material. Lifecycle credentials, authenticated installer APIs and other secrets additionally require cryptographic boot trust.
+
+TPM-backed attestation is the preferred first hardware-backed trust mechanism for capable systems. A non-TPM fallback must be an explicit separately reviewed security mode and must never be selected silently.
+
+See `docs/adr/0003-provisioning-trust-model.md`.
 
 ## Least privilege
 
@@ -33,24 +48,28 @@ Every helper action validates its complete input domain and emits an audit/opera
 
 Each installation receives a cryptographically random credential scoped to that installation. The credential may authorize only explicitly defined installer operations, such as:
 
-- fetch installation seed,
+- fetch secret-bearing installation material where a driver truly requires it,
 - report lifecycle event,
 - upload installer log chunk,
 - report validation result.
 
 It must not authorize administrative APIs or access another installation.
 
-Credential values must not appear in query strings or logs.
+Credential values must not appear in query strings, public boot scripts, kernel arguments or logs.
 
 ## Seed security
 
-Seeds are installation-scoped. Fetching a seed is not equivalent to claiming or starting the installation.
+Seeds are installation-scoped. Fetching or rendering a seed is not equivalent to claiming or starting the installation.
 
-Seed access remains valid for the period required by the native installer and is revoked according to explicit lifecycle policy, normally after successful completion or administrative cancellation/expiry.
+The Debian 13 Standard driver prefers initrd preseeding. Its rendered Preseed contains desired-state configuration and SSH public keys but no lifecycle credential, reusable password, private key or recovery secret. Keeping the Preseed inside a per-installation initrd derivative removes the need for a credential-bearing network Preseed URL.
+
+If a future driver requires secret-bearing seed delivery, access remains valid only for the period required by the native installer and is revoked according to explicit lifecycle policy, normally after successful completion or administrative cancellation/expiry. That path additionally requires cryptographic boot trust.
 
 ## Boot assignment
 
-An assignment is consumed only after an authenticated `INSTALLER_STARTED` event for the assigned installation. Firmware fetches, bootloader retries and seed reads do not consume it.
+An assignment is consumed only after an authenticated `INSTALLER_STARTED` event for the assigned installation. Firmware fetches, bootloader retries, BootSpec rendering, artifact reads and seed reads do not consume it.
+
+At most one assignment may be armed for one Machine. Cancelling an assignment is an auditable administrative action. Consuming an assignment is an auditable runtime state mutation tied to the accepted authenticated installer-start event.
 
 ## Secret handling
 
@@ -95,6 +114,8 @@ The initial role model should remain small. Security-sensitive actions require e
 
 All such actions produce audit events.
 
+Until operator authentication and authorization exist, Studio may show provisioning/trust state but must remain read-only for these mutations.
+
 ## Input validation
 
 External identifiers, URLs, filenames, paths, hostnames, MAC addresses, driver IDs and profile values are validated at domain boundaries.
@@ -105,13 +126,15 @@ Path traversal and user-controlled filesystem destinations are forbidden. Intern
 
 Security decisions must be logged without logging secrets. See `OBSERVABILITY.md`.
 
-Authentication failures, authorization failures, invalid lifecycle events, replay attempts and artifact integrity failures require structured security logs with stable error codes.
+Authentication failures, authorization failures, invalid lifecycle events, replay attempts, assignment conflicts and artifact integrity failures require structured security logs with stable error codes.
 
 ## Replay and sequencing
 
 Installation events include a sequence or idempotency mechanism. The server must reject invalid state regressions and handle duplicate reports deterministically.
 
 A replayed request must not create duplicate state transitions.
+
+Cryptographic boot trust must include server freshness/challenge material or an equivalent replay-resistant mechanism. A previously valid proof may not be replayed as a new provisioning authorization.
 
 ## Secure defaults
 
