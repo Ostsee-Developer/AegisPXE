@@ -1,6 +1,7 @@
 package operatorui
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"log/slog"
@@ -14,6 +15,15 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/operator"
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
 )
+
+const trustedProxyProvider = "trusted-proxy"
+
+type externalIdentity struct {
+	Provider string
+	Subject  string
+}
+
+type externalIdentityContextKey struct{}
 
 type TrustedProxy struct {
 	prefixes       []netip.Prefix
@@ -65,15 +75,23 @@ func (p TrustedProxy) Enabled() bool {
 	return len(p.prefixes) > 0
 }
 
-func (p TrustedProxy) Identity(r *http.Request) (string, bool) {
+// SecureSource verifies the reverse-proxy trust boundary without requiring a
+// user identity. This is deliberately separate from Identity so AegisPXE can
+// offer its own recovery authentication when the trusted proxy is reachable
+// but does not provide an authenticated subject.
+func (p TrustedProxy) SecureSource(r *http.Request) bool {
 	if !p.Enabled() || r == nil {
-		return "", false
+		return false
 	}
 	addr, ok := remoteAddr(r.RemoteAddr)
 	if !ok || !p.contains(addr) {
-		return "", false
+		return false
 	}
-	if strings.ToLower(strings.TrimSpace(r.Header.Get(p.protoHeader))) != "https" {
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get(p.protoHeader)), "https")
+}
+
+func (p TrustedProxy) Identity(r *http.Request) (string, bool) {
+	if !p.SecureSource(r) {
 		return "", false
 	}
 	identity := strings.TrimSpace(r.Header.Get(p.identityHeader))
@@ -96,27 +114,25 @@ func NewWithTrustedProxy(next http.Handler, state *store.Store, auth *operator.M
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &trustedProxySessionHandler{next: base, auth: auth, logger: logger, proxy: proxy}
+	return &trustedProxyIdentityHandler{next: base, logger: logger, proxy: proxy}
 }
 
-type trustedProxySessionHandler struct {
+type trustedProxyIdentityHandler struct {
 	next   http.Handler
-	auth   *operator.Manager
 	logger *slog.Logger
 	proxy  TrustedProxy
 }
 
-func (h *trustedProxySessionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	identity, ok := h.proxy.Identity(r)
-	if !ok {
+func (h *trustedProxyIdentityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !h.proxy.SecureSource(r) {
 		h.next.ServeHTTP(w, r)
 		return
 	}
 
 	request := r.Clone(r.Context())
-	// AegisPXE only sets this after the direct peer and forwarded protocol
-	// have passed the TrustedProxy contract above. Downstream code can then
-	// treat the request as HTTPS-terminated without trusting arbitrary headers.
+	// This marker is only set after the direct peer and forwarded protocol have
+	// passed the configured TrustedProxy contract. Downstream code never trusts
+	// arbitrary forwarded headers directly.
 	request.TLS = &tls.ConnectionState{}
 	if requestID(request) == "" {
 		id, err := idgen.New("req_")
@@ -126,47 +142,28 @@ func (h *trustedProxySessionHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 		}
 		request.Header.Set("X-Request-ID", id)
 	}
-
-	if h.auth != nil {
-		cookie, cookieErr := request.Cookie(sessionCookieName)
-		if cookieErr != nil || !validSessionCookie(h.auth, cookie) {
-			token, session, err := h.auth.IssueSession("proxy:" + identity)
-			if err != nil {
-				h.logger.ErrorContext(request.Context(), "trusted proxy session failed",
-					"component", "operator.auth",
-					"operation", "proxy_session",
-					"request_id", requestID(request),
-					"remote", remoteHost(request),
-					"error_code", fault.StorageFailure,
-					"result", "failure",
-					"cause", err.Error(),
-				)
-				http.Error(w, "operator service unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			cookie = &http.Cookie{
-				Name:     sessionCookieName,
-				Value:    token,
-				Path:     "/ui/",
-				HttpOnly: true,
-				Secure:   true,
-				SameSite: http.SameSiteStrictMode,
-				Expires:  session.ExpiresAt,
-				MaxAge:   int(operator.SessionDuration.Seconds()),
-			}
-			http.SetCookie(w, cookie)
-			request.AddCookie(cookie)
-			h.logger.InfoContext(request.Context(), "operator authenticated by trusted proxy",
-				"component", "operator.auth",
-				"operation", "proxy_session",
-				"request_id", requestID(request),
-				"remote", remoteHost(request),
-				"actor", session.Actor,
-				"result", "success",
-			)
-		}
+	if subject, ok := h.proxy.Identity(r); ok {
+		identity := externalIdentity{Provider: trustedProxyProvider, Subject: subject}
+		request = request.WithContext(context.WithValue(request.Context(), externalIdentityContextKey{}, identity))
+		h.logger.InfoContext(request.Context(), "trusted proxy identity accepted",
+			"component", "operator.proxy",
+			"operation", "identity",
+			"request_id", requestID(request),
+			"remote", remoteHost(request),
+			"provider", identity.Provider,
+			"external_subject", identity.Subject,
+			"result", "accepted",
+		)
 	}
 	h.next.ServeHTTP(w, request)
+}
+
+func externalIdentityFromRequest(r *http.Request) (externalIdentity, bool) {
+	if r == nil {
+		return externalIdentity{}, false
+	}
+	identity, ok := r.Context().Value(externalIdentityContextKey{}).(externalIdentity)
+	return identity, ok && strings.TrimSpace(identity.Subject) != ""
 }
 
 func RequireTrustedProxyOrLoopback(next http.Handler, proxy TrustedProxy, logger *slog.Logger) http.Handler {
@@ -181,7 +178,7 @@ func RequireTrustedProxyOrLoopback(next http.Handler, proxy TrustedProxy, logger
 			next.ServeHTTP(w, r)
 			return
 		}
-		if _, ok := proxy.Identity(r); ok {
+		if proxy.SecureSource(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -191,7 +188,7 @@ func RequireTrustedProxyOrLoopback(next http.Handler, proxy TrustedProxy, logger
 			"remote", remoteHost(r),
 			"error_code", fault.OperatorSecureTransportRequired,
 			"result", "rejected",
-			"cause", "untrusted_proxy_source_or_identity",
+			"cause", "untrusted_proxy_source_or_protocol",
 		)
 		http.Error(w, "studio access denied", http.StatusForbidden)
 	})
