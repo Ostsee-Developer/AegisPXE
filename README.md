@@ -28,6 +28,28 @@ AegisPXE will be implemented in Go and initially target:
 
 The first engineering milestone is intentionally smaller: **headless machine discovery and registration**, with complete structured logging and lifecycle events. Debian provisioning comes only after discovery is reproducible and observable.
 
-## Status
+## Project constitution
 
-AegisPXE is being designed from first principles. The architecture, security model, observability contract, lifecycle, driver interface and testing rules are treated as project constitution and will be documented before installer implementation begins.
+These documents are normative for implementation and review:
+
+- [Architecture](ARCHITECTURE.md)
+- [Observability](OBSERVABILITY.md)
+- [Security](SECURITY.md)
+- [Installation lifecycle](LIFECYCLE.md)
+- [OS driver contract](DRIVER_CONTRACT.md)
+- [Testing strategy](TESTING.md)
+- [Contribution rules](CONTRIBUTING.md)
+- [Coding-agent instructions](AGENTS.md)
+- [Profile schema principles](docs/PROFILE_SCHEMA.md)
+- [Error-code contract](docs/ERROR_CODES.md)
+- [Machine discovery contract](docs/MACHINE_DISCOVERY.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Architecture decisions](docs/adr/)
+
+The Project Constitution workflow verifies that foundational contracts remain present and documented.
+
+## Current milestone
+
+**0.0.x: Foundation and headless discovery.**
+
+The next implementation step is the Machine domain and repeatable discovery loop. No OS installer code should be added until machine identity, pending-state registration, logging, events and non-provisioning exit behavior are proven stable.
