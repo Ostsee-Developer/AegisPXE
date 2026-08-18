@@ -54,7 +54,7 @@ type Resolution struct {
 	ReleaseVersion   string
 	InstallerVersion string
 	Kernel           artifact.Verified
-	Initrd            artifact.Verified
+	Initrd           artifact.Verified
 }
 
 func NewArtifactResolver(logger *slog.Logger) *ArtifactResolver {
@@ -124,7 +124,7 @@ func (r *ArtifactResolver) Resolve(ctx context.Context) (Resolution, error) {
 		ReleaseVersion:   info.ReleaseVersion,
 		InstallerVersion: info.InstallerVersion,
 		Kernel:           kernel,
-		Initrd:            initrd,
+		Initrd:           initrd,
 	}
 	r.logger.InfoContext(ctx, "Debian installer artifacts verified",
 		"component", "driver.debian13",
