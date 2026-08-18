@@ -26,7 +26,7 @@ import (
 // The fallback identifies binaries built directly with `go build` as non-release builds.
 var version = "dev"
 
-const serverWriteTimeout = 3 * time.Minute
+const serverWriteTimeout = 10 * time.Minute
 
 func main() {
 	showVersion := flag.Bool("version", false, "print version")
