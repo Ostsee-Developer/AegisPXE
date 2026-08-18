@@ -32,6 +32,7 @@ type Admin struct {
 	Username          string   `json:"username"`
 	FullName          string   `json:"full_name"`
 	AuthorizedSSHKeys []string `json:"authorized_ssh_keys"`
+	PasswordlessSudo  bool     `json:"passwordless_sudo"`
 }
 
 func (s Snapshot) Validate() error {
