@@ -16,15 +16,16 @@ import (
 
 const (
 	sessionCookieName = "aegispxe_operator_session"
-	maxFormBody       = 16 << 10
+	maxFormBody       = 96 << 10
 )
 
 type Handler struct {
-	next   http.Handler
-	state  *store.Store
-	auth   *operator.Manager
-	logger *slog.Logger
-	mux    *http.ServeMux
+	next     http.Handler
+	state    *store.Store
+	auth     *operator.Manager
+	logger   *slog.Logger
+	mux      *http.ServeMux
+	resolver debianArtifactResolver
 }
 
 type loginView struct {
@@ -39,6 +40,7 @@ var loginTemplate = template.Must(template.New("operator-login").Parse(`<!doctyp
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>AegisPXE · Operator login</title>
   <link rel="stylesheet" href="/ui/assets/style.css">
+  <link rel="stylesheet" href="/ui/operator/assets/operator.css">
 </head>
 <body>
 <main class="operator-login-shell">
@@ -50,11 +52,11 @@ var loginTemplate = template.Must(template.New("operator-login").Parse(`<!doctyp
       {{if .Error}}<p class="operator-auth-error">{{.Error}}</p>{{end}}
       <form method="post" action="/ui/operator/login">
         <label>Bootstrap operator key<input type="password" name="key" autocomplete="current-password" required></label>
-        <button type="submit">Authenticate</button>
+        <button class="op-button" type="submit">Authenticate</button>
       </form>
       {{else}}
       <p class="operator-auth-error">Operator login is disabled on cleartext network HTTP.</p>
-      <p class="muted">Use an HTTPS listener or access AegisPXE through loopback. Public Studio remains read-only.</p>
+      <p class="muted">Use the loopback operator listener through an SSH tunnel or a direct HTTPS connection. Public Studio remains read-only.</p>
       {{end}}
       <p><a class="machine-link" href="/ui/">← Back to Studio</a></p>
     </div>
@@ -67,13 +69,21 @@ func New(next http.Handler, state *store.Store, auth *operator.Manager, logger *
 	if logger == nil {
 		logger = slog.Default()
 	}
-	h := &Handler{next: next, state: state, auth: auth, logger: logger, mux: http.NewServeMux()}
+	h := &Handler{
+		next:     next,
+		state:    state,
+		auth:     auth,
+		logger:   logger,
+		mux:      http.NewServeMux(),
+		resolver: newDebianArtifactResolver(logger),
+	}
 	h.mux.HandleFunc("GET /ui/operator/login", h.loginPage)
 	h.mux.HandleFunc("POST /ui/operator/login", h.login)
 	h.mux.HandleFunc("POST /ui/operator/logout", h.logout)
 	h.mux.HandleFunc("POST /ui/operator/machines/{id}/policy", h.machinePolicy)
 	h.mux.HandleFunc("POST /ui/operator/installations/{id}/arm", h.armInstallation)
 	h.mux.HandleFunc("POST /ui/operator/installations/{id}/cancel", h.cancelInstallation)
+	h.registerConsole()
 	return h
 }
 
@@ -107,7 +117,7 @@ func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := h.session(r); ok {
-		http.Redirect(w, r, "/ui/", http.StatusSeeOther)
+		http.Redirect(w, r, "/ui/operator/", http.StatusSeeOther)
 		return
 	}
 	h.renderLogin(w, secureTransport(r), "")
@@ -160,7 +170,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		"expires_at", session.ExpiresAt,
 		"result", "success",
 	)
-	http.Redirect(w, r, "/ui/", http.StatusSeeOther)
+	http.Redirect(w, r, "/ui/operator/", http.StatusSeeOther)
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
@@ -199,7 +209,7 @@ func (h *Handler) machinePolicy(w http.ResponseWriter, r *http.Request) {
 		h.writeMutationError(w, r, "machine_policy", err)
 		return
 	}
-	http.Redirect(w, r, "/ui/machines/"+machineID, http.StatusSeeOther)
+	http.Redirect(w, r, "/ui/operator/", http.StatusSeeOther)
 }
 
 func (h *Handler) armInstallation(w http.ResponseWriter, r *http.Request) {
