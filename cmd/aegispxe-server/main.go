@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
 	"github.com/Ostsee-Developer/AegisPXE/internal/observability"
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
@@ -40,7 +41,7 @@ func main() {
 
 	state, err := store.Open(ctx, env("AEGISPXE_DB", "/var/lib/aegispxe/aegispxe.db"), logger)
 	if err != nil {
-		logger.Error("startup failed", "component", "server", "operation", "open_store", "error", err)
+		logger.Error("startup failed", "component", "server", "operation", "open_store", "error_code", fault.StorageFailure, "error", err)
 		os.Exit(1)
 	}
 	defer state.Close()
@@ -48,6 +49,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := state.Ping(r.Context()); err != nil {
+			logger.ErrorContext(r.Context(), "health check failed", "component", "server", "operation", "health", "error_code", fault.StorageFailure, "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy"})
@@ -87,7 +89,13 @@ func requestLog(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
 		if requestID == "" || len(requestID) > 128 {
-			requestID, _ = idgen.New("req_")
+			var err error
+			requestID, err = idgen.New("req_")
+			if err != nil {
+				logger.ErrorContext(r.Context(), "request ID allocation failed", "component", "http", "operation", "request_id", "error_code", fault.StorageFailure, "error", err)
+				http.Error(w, "internal request tracking failure", http.StatusInternalServerError)
+				return
+			}
 		}
 		w.Header().Set("X-Request-ID", requestID)
 		started := time.Now()
