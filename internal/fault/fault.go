@@ -8,6 +8,8 @@ const (
 	MachineIdentityInvalid  = "MAC002_MACHINE_IDENTITY_INVALID"
 	MachineNotFound         = "MAC003_MACHINE_NOT_FOUND"
 	MachinePolicyInvalid    = "MAC004_MACHINE_POLICY_INVALID"
+	InstallationSpecInvalid = "INS001_INSTALLATION_SPEC_INVALID"
+	InstallationNotFound    = "INS002_INSTALLATION_NOT_FOUND"
 	StorageFailure          = "SYS001_STORAGE_FAILURE"
 )
 

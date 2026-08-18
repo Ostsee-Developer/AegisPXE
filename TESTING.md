@@ -47,6 +47,8 @@ A unit test should normally exercise one domain rule. For example:
 
 - `pending -> provision` is allowed,
 - `blocked -> provision` is rejected without explicit approval,
+- an InstallationSpec rejects a non-canonical artifact digest,
+- a caller mutation cannot change an immutable InstallationSpec snapshot,
 - a secret field is redacted,
 - a Debian driver renders the required installer directive.
 
@@ -59,6 +61,8 @@ Database transactions, event persistence, machine discovery, API authentication,
 Integration tests use temporary isolated state and must be repeatable.
 
 Each integration test should focus on one boundary or transaction. For example, machine discovery may assert atomically that one machine and one discovery event were persisted, without also testing the WebUI, package installer and PXE boot path in the same function.
+
+An InstallationSpec store test may prove atomic creation plus `INSTALLATION_CREATED` and exact read-back without simulating the Debian installer.
 
 ### E2E tests
 

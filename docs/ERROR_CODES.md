@@ -14,6 +14,7 @@ Examples:
 - `MAC001_MACHINE_IDENTITY_CONFLICT`
 - `ART002_ARTIFACT_HASH_MISMATCH`
 - `DRV001_DRIVER_RENDER_FAILED`
+- `INS001_INSTALLATION_SPEC_INVALID`
 - `INS003_INSTALLER_STAGE_FAILED`
 - `SEC002_INVALID_INSTALLATION_TOKEN`
 - `VAL001_VALIDATION_FAILED`
@@ -24,7 +25,7 @@ Examples:
 - `MAC`: machine identity/discovery,
 - `ART`: artifact resolution/download/integrity,
 - `DRV`: driver compile/render/capability,
-- `INS`: native installer and first-boot runtime,
+- `INS`: installation specification, native installer and first-boot runtime,
 - `SEC`: authentication, authorization, trust and secret handling,
 - `VAL`: desired-state validation,
 - `SYS`: internal service/storage/platform failures.
@@ -47,6 +48,8 @@ Examples:
 | `MAC002_MACHINE_IDENTITY_INVALID` | The supplied machine observation contains no usable identity or an invalid identifier. |
 | `MAC003_MACHINE_NOT_FOUND` | A requested machine ID does not exist. |
 | `MAC004_MACHINE_POLICY_INVALID` | A requested machine policy or policy mutation request is invalid. |
+| `INS001_INSTALLATION_SPEC_INVALID` | An InstallationSpec violates the immutable installation contract or attempts to supply server-owned identity metadata. |
+| `INS002_INSTALLATION_NOT_FOUND` | A requested InstallationSpec does not exist. |
 | `SYS001_STORAGE_FAILURE` | The persistent store could not complete an operation safely. |
 
 The Go registry in `internal/fault` is authoritative for allocated codes. Documentation and source must change together when a new operator-visible code is introduced.

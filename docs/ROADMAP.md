@@ -32,7 +32,7 @@ The `.deb` is part of the implementation path from this milestone onward. A sour
 
 ### 0.0.3 Headless PXE discovery E2E
 
-- unknown VM checks in through an iPXE POST bootstrap,
+- unknown VM checks in through an iPXE bootstrap,
 - machine appears in the embedded Studio/API as pending,
 - repeat boot does not duplicate the machine,
 - machine detail exposes identifiers and audit/discovery timeline,
@@ -46,17 +46,21 @@ The `.deb` is part of the implementation path from this milestone onward. A sour
 
 Gate: packaged 20-repeat discovery contract plus a real disposable-VM PXE run, identity-conflict/failure tests and useful correlated logs.
 
+Status: complete. The packaged 0.0.3 development path passed the real UEFI PXE repeat, identity-conflict, invalid-identity and reinstall persistence gates.
+
 ## 0.1.0: Debian 13 Standard
 
+- immutable InstallationSpec foundation,
 - Debian 13 driver,
 - verified artifacts,
-- immutable InstallationSpec,
 - unattended installer configuration,
 - real installer lifecycle telemetry,
 - installer log ingestion,
 - first-boot finalizer,
 - desired-state validation,
 - headless local boot after terminal state.
+
+`0.1.0-dev.1` establishes the immutable InstallationSpec domain and persistence contract only. It intentionally exposes no administrative creation endpoint and does not boot an installer.
 
 Gate: 10 consecutive unattended E2E successes and useful telemetry for intentionally failed runs, using a clean AegisPXE `.deb` installation.
 
