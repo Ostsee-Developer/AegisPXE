@@ -37,6 +37,7 @@ func TestRenderSeedPinsDiskAndKeyOnlyAdmin(t *testing.T) {
 		"NOPASSWD: ALL",
 		"in-target sshd -t",
 		"in-target visudo -cf /etc/sudoers.d/90-aegispxe-admin",
+		"d-i finish-install/reboot_in_progress note",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("preseed missing %q", want)
@@ -44,6 +45,34 @@ func TestRenderSeedPinsDiskAndKeyOnlyAdmin(t *testing.T) {
 	}
 	if strings.Contains(content, spec.LifecycleCredentialID) || strings.Contains(content, "preseed/url") {
 		t.Fatal("preseed contains lifecycle credential identity or transport URL")
+	}
+}
+
+func TestRenderSeedLateHookIsObservableAndFailClosed(t *testing.T) {
+	spec := validInstallationSpec()
+	var logs bytes.Buffer
+	logger := observability.New(&logs, slog.LevelDebug)
+
+	seed, err := RenderSeed(context.Background(), logger, spec, "req_late_hook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(seed.Content)
+	for _, want := range []string{
+		"/target/var/log/aegispxe-installer.log",
+		"component=aegispxe step=late_command result=started",
+		"component=aegispxe step=prepare_sshd_runtime result=started",
+		"in-target install -d -m 0755 /run/sshd",
+		"in-target ssh-keygen -A",
+		"component=aegispxe step=validate_sshd result=started",
+		"AEGIS_RESULT=success",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("late hook missing %q", want)
+		}
+	}
+	if strings.Contains(content, "|| true") {
+		t.Fatal("late hook must not hide hardening or validation failures")
 	}
 }
 
