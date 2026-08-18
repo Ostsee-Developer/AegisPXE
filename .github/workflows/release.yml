@@ -30,11 +30,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          version="$(tr -d '[:space:]' < VERSION)"
-          if [ -z "$version" ]; then
-            echo "VERSION must not be empty." >&2
-            exit 1
-          fi
+          version="$(bash scripts/version.sh project)"
 
           gh api --paginate \
             "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
@@ -182,11 +178,12 @@ jobs:
           done
 
           version="${{ steps.version.outputs.version }}"
+          deb_version="$(bash scripts/version.sh debian)"
           for arch in amd64 arm64; do
             deb="dist/aegispxe_${version}_${arch}.deb"
             test -f "$deb"
             test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
-            test "$(dpkg-deb --field "$deb" Version)" = "$version"
+            test "$(dpkg-deb --field "$deb" Version)" = "$deb_version"
             test "$(dpkg-deb --field "$deb" Architecture)" = "$arch"
           done
 
