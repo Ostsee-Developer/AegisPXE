@@ -39,6 +39,14 @@ func TestRenderBootRejectsMixedInstallerVersions(t *testing.T) {
 	}
 }
 
+func TestValidateSpecRejectsArtifactOutsideTrustedDebianOrigin(t *testing.T) {
+	spec := validInstallationSpec()
+	spec.Artifacts[0].SourceURL = "https://example.invalid/debian/dists/trixie/main/installer-amd64/installer-1/images/netboot/debian-installer/amd64/linux"
+	if err := ValidateSpec(spec); err == nil {
+		t.Fatal("expected untrusted artifact origin to be rejected")
+	}
+}
+
 func validInstallationSpec() installation.Spec {
 	return installation.Spec{
 		ID:                    "i_test",
