@@ -101,7 +101,7 @@ func validInstallationSpec() installation.Spec {
 				Provenance: "debian:trixie:release=13.6:installer=installer-1",
 			},
 		},
-		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4"},
+		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		Security:              installation.Security{AutomaticSecurityUpdates: true},
 		LifecycleCredentialID: "cred_test",
 		CreatedBy:             "system:test",
