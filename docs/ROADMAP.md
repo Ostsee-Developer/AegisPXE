@@ -32,15 +32,19 @@ The `.deb` is part of the implementation path from this milestone onward. A sour
 
 ### 0.0.3 Headless PXE discovery E2E
 
-- unknown VM checks in,
-- machine appears in Studio/API as pending,
+- unknown VM checks in through an iPXE POST bootstrap,
+- machine appears in the embedded Studio/API as pending,
 - repeat boot does not duplicate the machine,
+- machine detail exposes identifiers and audit/discovery timeline,
+- discovery and Studio reads remain low privilege/read-only,
 - no provisioning material is exposed,
+- `provision` fails closed until an immutable InstallationSpec is armed,
 - client leaves the provisioning path,
-- complete correlated logs available,
+- complete correlated discovery and policy-decision logs are available,
+- body/rate bounds protect the unauthenticated discovery edge,
 - E2E runs against the packaged installation rather than an ad-hoc source checkout.
 
-Gate: repeated discovery E2E, target 20 clean repetitions plus identity-conflict/failure tests.
+Gate: packaged 20-repeat discovery contract plus a real disposable-VM PXE run, identity-conflict/failure tests and useful correlated logs.
 
 ## 0.1.0: Debian 13 Standard
 
@@ -83,6 +87,7 @@ Choose the concrete supported CentOS target/release policy at this milestone and
 
 Only after all core drivers are reliable:
 
+- authenticated administrative Studio mutations,
 - richer Provisioning Studio,
 - public automation API,
 - CLI workflows,

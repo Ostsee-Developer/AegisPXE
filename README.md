@@ -21,14 +21,31 @@ It is not an interactive PXE menu and not a general-purpose live-boot catalog. A
 
 ## Initial target platform
 
-AegisPXE will be implemented in Go and initially target:
+AegisPXE is implemented in Go and initially targets:
 
 - Debian 13
 - Ubuntu Server 24.04 LTS
 - Ubuntu Server 26.04 LTS
 - CentOS via Kickstart after the Debian and Ubuntu paths are proven stable
 
-The first engineering milestone is intentionally smaller: **headless machine discovery and registration**, with complete structured logging and lifecycle events. Debian provisioning comes only after discovery is reproducible and observable.
+## 0.0.3 development slice
+
+The current slice is **headless machine discovery with an embedded read-only Studio**.
+
+A test machine can fetch `/boot/discovery.ipxe`, submit bounded identity observations, receive a non-provisioning server decision and appear immediately in the AegisPXE machine inventory. Repeated check-ins resolve to the same machine ID and append discovery events rather than creating duplicates.
+
+The Studio is available at `/ui/` on the configured AegisPXE HTTP listener and currently exposes:
+
+- machine inventory and policy counts,
+- pending/local/provision/blocked state,
+- architecture and firmware observations,
+- first/last seen,
+- stored machine identifiers,
+- append-only machine event timeline.
+
+The UI is intentionally read-only until operator authentication and authorization exist. 0.0.3 never exposes an installer, seed, profile or installation credential. Even policy `provision` returns a local/non-provisioning decision until a later milestone can prove an immutable InstallationSpec is armed.
+
+See [`docs/0.0.3-discovery-slice.md`](docs/0.0.3-discovery-slice.md) for the API, iPXE transport and E2E contract.
 
 ## Project constitution
 
@@ -53,6 +70,6 @@ The Project Constitution workflow verifies that foundational contracts remain pr
 
 ## Current milestone
 
-**0.0.x: Foundation and headless discovery.**
+**0.0.3: Headless PXE discovery E2E.**
 
-The next implementation step is the Machine domain and repeatable discovery loop. No OS installer code should be added until machine identity, pending-state registration, logging, events and non-provisioning exit behavior are proven stable.
+The release gate is a repeatable packaged discovery loop plus a disposable real-VM PXE test. Debian installer code begins only after that gate is stable and diagnosable.

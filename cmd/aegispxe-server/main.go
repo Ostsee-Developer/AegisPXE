@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,7 +14,7 @@ import (
 	"time"
 
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
-	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
+	"github.com/Ostsee-Developer/AegisPXE/internal/httpapi"
 	"github.com/Ostsee-Developer/AegisPXE/internal/observability"
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
 )
@@ -48,22 +47,10 @@ func main() {
 	}
 	defer state.Close()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		if err := state.Ping(r.Context()); err != nil {
-			logger.ErrorContext(r.Context(), "health check failed", "component", "server", "operation", "health", "error_code", fault.StorageFailure, "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy"})
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": version})
-	})
-
+	app := httpapi.New(state, logger, version)
 	server := &http.Server{
 		Addr:              env("AEGISPXE_LISTEN", "127.0.0.1:8090"),
-		Handler:           requestLog(logger, mux),
+		Handler:           app.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -85,25 +72,6 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("AegisPXE server stopped", "component", "server", "operation", "shutdown")
-}
-
-func requestLog(logger *slog.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
-		if requestID == "" || len(requestID) > 128 {
-			var err error
-			requestID, err = idgen.New("req_")
-			if err != nil {
-				logger.ErrorContext(r.Context(), "request ID allocation failed", "component", "http", "operation", "request_id", "error_code", fault.StorageFailure, "error", err)
-				http.Error(w, "internal request tracking failure", http.StatusInternalServerError)
-				return
-			}
-		}
-		w.Header().Set("X-Request-ID", requestID)
-		started := time.Now()
-		next.ServeHTTP(w, r)
-		logger.DebugContext(r.Context(), "http request", "component", "http", "operation", "request", "request_id", requestID, "method", r.Method, "path", r.URL.Path, "duration_ms", time.Since(started).Milliseconds())
-	})
 }
 
 func env(name, fallback string) string {

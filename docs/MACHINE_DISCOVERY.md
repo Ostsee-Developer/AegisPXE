@@ -73,6 +73,8 @@ Initial machine policy values:
 
 The policy evaluator returns a typed decision and logs the decision reason.
 
+Before the InstallationSpec domain exists, `provision` must still return a non-provisioning decision. Policy alone is never sufficient evidence that an installer may boot.
+
 ## Security
 
 Discovery endpoints are intentionally low privilege.
@@ -87,6 +89,8 @@ Discovery may create/update bounded machine observation records but cannot:
 - mutate administrative policy.
 
 Rate limits, input bounds and conflict handling are required before exposing discovery on an untrusted network.
+
+Administrative Studio mutations require operator authentication/authorization. Until that boundary exists, the discovery Studio remains read-only rather than exposing unauthenticated approve/block/policy controls.
 
 ## Observability
 
@@ -113,20 +117,21 @@ A repeated check-in should make it obvious that the existing machine was resolve
 - repeated identical check-ins,
 - concurrent first check-ins for the same identity,
 - policy `blocked`,
+- discovery rate limit,
 - unknown identity with only weak MAC evidence,
 - logging/redaction behavior.
 
 ## Studio requirement
 
-The first UI/API view should emphasize operational clarity over visual complexity. A pending machine should show:
+The first UI/API view emphasizes operational clarity over visual complexity. A pending machine shows:
 
 - machine ID,
 - first/last seen,
 - identity observations,
 - pending status,
-- any identity warning/conflict,
-- recent discovery/boot events,
-- link to correlated logs,
-- explicit administrator action to configure/approve it.
+- any identity warning/conflict where available,
+- recent discovery/boot events.
+
+Operator actions to configure/approve a machine are introduced only with the administrative authentication/authorization boundary. The 0.0.3 Studio is therefore deliberately read-only.
 
 No installer choices are rendered on the client itself.

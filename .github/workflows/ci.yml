@@ -71,7 +71,7 @@ jobs:
           test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(bash scripts/version.sh project)"
           sudo systemctl is-active --quiet aegispxe.service
           test "$(stat -c '%U:%G' /var/lib/aegispxe)" = "aegispxe:aegispxe"
-      - name: Exercise packaged health endpoint
+      - name: Exercise packaged discovery slice
         shell: bash
         run: |
           set -euo pipefail
@@ -79,15 +79,45 @@ jobs:
           AEGISPXE_DB="$db" AEGISPXE_LISTEN=127.0.0.1:18090 /usr/lib/aegispxe/aegispxe-server >/tmp/aegispxe-smoke.log 2>&1 &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
+
+          ready=false
           for _ in $(seq 1 20); do
             body="$(curl --fail --silent http://127.0.0.1:18090/healthz 2>/dev/null || true)"
             if grep -Fq '"status":"ok"' <<<"$body"; then
-              exit 0
+              ready=true
+              break
             fi
             sleep 0.25
           done
-          cat /tmp/aegispxe-smoke.log
-          exit 1
+          if [ "$ready" != true ]; then
+            cat /tmp/aegispxe-smoke.log
+            exit 1
+          fi
+
+          bootstrap="$(curl --fail --silent http://127.0.0.1:18090/boot/discovery.ipxe)"
+          grep -Fq '#!ipxe' <<<"$bootstrap"
+          grep -Fq '##params' <<<"$bootstrap"
+
+          for _ in $(seq 1 20); do
+            decision="$(curl --fail --silent \
+              --data-urlencode 'mac=52:54:00:12:34:56' \
+              --data-urlencode 'smbios_uuid=11111111-2222-3333-4444-555555555555' \
+              --data-urlencode 'architecture=x86_64' \
+              --data-urlencode 'firmware=efi' \
+              http://127.0.0.1:18090/api/v1/discovery.ipxe)"
+            grep -Fq 'pending_approval' <<<"$decision"
+          done
+
+          machines="$(curl --fail --silent http://127.0.0.1:18090/api/v1/machines)"
+          machine_id="$(python3 -c 'import json,sys; data=json.load(sys.stdin); assert len(data["machines"]) == 1; m=data["machines"][0]; assert m["policy"] == "pending"; print(m["id"])' <<<"$machines")"
+          test -n "$machine_id"
+
+          events="$(curl --fail --silent "http://127.0.0.1:18090/api/v1/machines/${machine_id}/events")"
+          python3 -c 'import json,sys; data=json.load(sys.stdin); assert len(data["events"]) == 20; assert data["events"][0]["type"] == "MACHINE_DISCOVERED"' <<<"$events"
+
+          ui="$(curl --fail --silent http://127.0.0.1:18090/ui/)"
+          grep -Fq "$machine_id" <<<"$ui"
+          grep -Fq 'PENDING' <<<"$ui"
       - name: Verify remove preserves state
         shell: bash
         run: |

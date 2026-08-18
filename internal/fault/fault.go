@@ -3,6 +3,7 @@ package fault
 import "errors"
 
 const (
+	DiscoveryRateLimited    = "PXE001_DISCOVERY_RATE_LIMITED"
 	MachineIdentityConflict = "MAC001_MACHINE_IDENTITY_CONFLICT"
 	MachineIdentityInvalid  = "MAC002_MACHINE_IDENTITY_INVALID"
 	MachineNotFound         = "MAC003_MACHINE_NOT_FOUND"
