@@ -64,7 +64,9 @@ Status: complete. The packaged 0.0.3 development path passed the real UEFI PXE r
 
 `0.1.0-dev.2` establishes Debian 13 amd64 artifact trust: signed `trixie/InRelease` verification through the Debian archive keyring, resolution from `current` to a versioned installer build, trusted checksum-manifest verification, and SHA-256 verification of the actual netboot kernel/initrd bytes. InstallationSpecs pin the verified source/version/digest/size/provenance metadata.
 
-The next slice persists verified artifacts and renders a typed Debian boot specification. Fetching boot material must still not imply `INSTALLER_STARTED` or consume a provisioning assignment.
+`0.1.0-dev.3` completes the InstallationSpec/BootSpec split. InstallationSpec remains the only authoritative desired-state record, artifact roles are unique, driver contract versioning is independent from the AegisPXE application version, and the Debian 13 driver validates the pinned artifact set before deterministically rendering a bounded secret-free BootSpec. BootSpec is not independently persisted.
+
+The next slice can persist/serve verified artifact bytes and render the Debian unattended seed. Fetching boot material must still not imply `INSTALLER_STARTED` or consume a provisioning assignment.
 
 Gate: 10 consecutive unattended E2E successes and useful telemetry for intentionally failed runs, using a clean AegisPXE `.deb` installation.
 

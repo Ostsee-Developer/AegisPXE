@@ -19,6 +19,16 @@ func TestSpecValidationRejectsTPMWithoutEncryption(t *testing.T) {
 	}
 }
 
+func TestSpecValidationRejectsDuplicateArtifactRoles(t *testing.T) {
+	spec := validSpec()
+	duplicate := spec.Artifacts[0]
+	duplicate.ID = "artifact_linux_duplicate"
+	spec.Artifacts = append(spec.Artifacts, duplicate)
+	if err := spec.Validate(); err == nil {
+		t.Fatal("expected duplicate artifact role to be rejected")
+	}
+}
+
 func TestCloneOwnsArtifactSlice(t *testing.T) {
 	spec := validSpec()
 	clone := spec.Clone()

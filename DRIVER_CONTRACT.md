@@ -76,9 +76,11 @@ Drivers do not receive arbitrary administrator-provided shell commands as part o
 
 ## Boot contract
 
-`RenderBoot` returns a typed BootSpec containing only the data the boot transport needs, for example kernel/initrd references and a bounded argument set.
+`RenderBoot` returns a typed BootSpec containing only the data the boot transport needs: installation/driver identity, digest-pinned kernel/initrd references, a bounded argument set and a non-secret seed reference.
 
-Boot rendering must not embed secrets in public paths or logs.
+The BootSpec is a deterministic derivative of the immutable InstallationSpec. It is not an independent desired-state record and must not be persisted as a second source of truth.
+
+Boot rendering must not embed secrets in public paths, kernel arguments or logs. Fetching or rendering boot material does not imply `INSTALLER_STARTED` and does not consume an assignment.
 
 ## Seed contract
 
@@ -138,9 +140,11 @@ No feature is silently downgraded.
 
 ## Versioning
 
-An InstallationSpec stores driver ID and driver version. Updating a driver must not change an already armed installation's rendered contract without an explicit migration/rebuild decision.
+An InstallationSpec stores driver ID and driver contract version. Driver contract versions are independent from the AegisPXE application version. A UI, packaging or unrelated server change therefore does not invalidate a driver contract.
 
-Breaking driver behavior requires tests and documentation, and may require an ADR.
+A driver implementation must refuse to render a spec requiring a different contract version. Any behavior change that can alter rendered boot/seed/runtime semantics requires an intentional driver-version decision and tests.
+
+Updating a driver must not silently reinterpret an already armed installation's rendered contract. Breaking driver behavior requires documentation and may require an ADR.
 
 ## Initial drivers
 
