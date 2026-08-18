@@ -64,10 +64,16 @@ jobs:
           test -n "$deb"
           test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
           test "$(dpkg-deb --field "$deb" Version)" = "$(bash scripts/version.sh debian)"
+          dependencies="$(dpkg-deb --field "$deb" Depends)"
+          grep -Fq 'adduser' <<<"$dependencies"
+          grep -Fq 'ipxe' <<<"$dependencies"
+          grep -Fq 'tftpd-hpa' <<<"$dependencies"
           contents="$(dpkg-deb --contents "$deb")"
           grep -Fq './usr/lib/aegispxe/aegispxe-server' <<<"$contents"
           grep -Fq './lib/systemd/system/aegispxe.service' <<<"$contents"
-          sudo dpkg -i "$deb"
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$deb"
+          test -f /usr/lib/ipxe/ipxe.efi
           test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(bash scripts/version.sh project)"
           sudo systemctl is-active --quiet aegispxe.service
           test "$(stat -c '%U:%G' /var/lib/aegispxe)" = "aegispxe:aegispxe"
