@@ -78,7 +78,7 @@ func main() {
 
 	proxyTrust, err := operatorui.ParseTrustedProxy(
 		env("AEGISPXE_TRUSTED_PROXY_CIDRS", ""),
-		env("AEGISPXE_TRUSTED_PROXY_IDENTITY_HEADER", "X-Remote-User"),
+		env("AEGISPXE_TRUSTED_PROXY_IDENTITY_HEADER", "Remote-User"),
 		env("AEGISPXE_TRUSTED_PROXY_PROTO_HEADER", "X-Forwarded-Proto"),
 	)
 	if err != nil {
