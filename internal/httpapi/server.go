@@ -177,7 +177,6 @@ func (s *Server) discover(ctx context.Context, observation machine.Observation, 
 		Reason:    decision.Reason,
 	}, nil
 }
-
 func (s *Server) discoveryBootstrap(w http.ResponseWriter, r *http.Request) {
 	base := requestBaseURL(r)
 	endpoint := base + "/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid}&architecture=${buildarch:uristring}&firmware=${platform:uristring}"
