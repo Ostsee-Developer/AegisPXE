@@ -21,6 +21,9 @@ func TestRenderSeedPinsDiskAndKeyOnlyAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(seed.Content)
+	if !strings.HasPrefix(content, "#_preseed_V1\n") {
+		t.Fatalf("preseed missing canonical v1 header: %q", content)
+	}
 	for _, want := range []string{
 		"d-i partman-auto/disk string /dev/vda",
 		"d-i grub-installer/bootdev string /dev/vda",
