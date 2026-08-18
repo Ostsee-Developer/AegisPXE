@@ -62,6 +62,10 @@ Status: complete. The packaged 0.0.3 development path passed the real UEFI PXE r
 
 `0.1.0-dev.1` establishes the immutable InstallationSpec domain and persistence contract only. It intentionally exposes no administrative creation endpoint and does not boot an installer.
 
+`0.1.0-dev.2` establishes Debian 13 amd64 artifact trust: signed `trixie/InRelease` verification through the Debian archive keyring, resolution from `current` to a versioned installer build, trusted checksum-manifest verification, and SHA-256 verification of the actual netboot kernel/initrd bytes. InstallationSpecs pin the verified source/version/digest/size/provenance metadata.
+
+The next slice persists verified artifacts and renders a typed Debian boot specification. Fetching boot material must still not imply `INSTALLER_STARTED` or consume a provisioning assignment.
+
 Gate: 10 consecutive unattended E2E successes and useful telemetry for intentionally failed runs, using a clean AegisPXE `.deb` installation.
 
 ## 0.2.0: Debian 13 Encrypted
