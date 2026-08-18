@@ -33,6 +33,17 @@ func TestRenderBootIsDeterministicAndSecretFree(t *testing.T) {
 	}
 }
 
+func TestValidateSpecAcceptsDraftButRenderRequiresServerIdentity(t *testing.T) {
+	spec := validInstallationSpec()
+	spec.ID = ""
+	if err := ValidateSpec(spec); err != nil {
+		t.Fatalf("draft capability validation failed: %v", err)
+	}
+	if _, err := RenderBoot(spec); err == nil {
+		t.Fatal("rendering accepted an InstallationSpec without server-assigned identity")
+	}
+}
+
 func TestRenderBootRejectsMixedInstallerVersions(t *testing.T) {
 	spec := validInstallationSpec()
 	spec.Artifacts[1].Version = "installer-2"
