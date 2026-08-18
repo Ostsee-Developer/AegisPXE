@@ -22,8 +22,8 @@ type Storage struct {
 
 type Security struct {
 	SSHPasswordAuthentication bool
-	RootLogin                  bool
-	AutomaticSecurityUpdates   bool
+	RootLogin                 bool
+	AutomaticSecurityUpdates  bool
 }
 
 type Spec struct {
