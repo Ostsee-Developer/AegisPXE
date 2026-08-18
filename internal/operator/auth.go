@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	bootstrapKeyBytes = 32
+	recoveryKeyBytes  = 32
 	sessionTokenBytes = 32
 	csrfTokenBytes    = 24
 	SessionDuration   = 8 * time.Hour
@@ -65,7 +65,7 @@ func LoadOrCreate(path string, logger *slog.Logger) (*Manager, error) {
 	if !filepath.IsAbs(path) {
 		return nil, errors.New("operator key path must be absolute")
 	}
-	key, created, err := loadOrCreateBootstrapKey(path)
+	key, created, err := loadOrCreateRecoveryKey(path)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func LoadOrCreate(path string, logger *slog.Logger) (*Manager, error) {
 func New(key string, logger *slog.Logger) (*Manager, error) {
 	key = strings.TrimSpace(key)
 	decoded, err := base64.RawURLEncoding.DecodeString(key)
-	if err != nil || len(decoded) != bootstrapKeyBytes {
+	if err != nil || len(decoded) != recoveryKeyBytes {
 		return nil, errors.New("operator recovery key must be 256-bit base64url without padding")
 	}
 	if logger == nil {
@@ -110,20 +110,7 @@ func New(key string, logger *slog.Logger) (*Manager, error) {
 }
 
 func GenerateKey() (string, error) {
-	return randomToken(bootstrapKeyBytes)
-}
-
-// Login is retained for local backwards-compatible recovery tooling. The web
-// dashboard never exposes recovery-key-only authentication.
-func (m *Manager) Login(remote, suppliedKey string) (string, Session, error) {
-	if err := m.VerifyRecoveryKey(remote, suppliedKey); err != nil {
-		return "", Session{}, err
-	}
-	return m.issueSession(Session{
-		Actor:      "recovery:operator",
-		Role:       operatoridentity.RoleAdmin,
-		AuthMethod: "legacy-recovery-key",
-	})
+	return randomToken(recoveryKeyBytes)
 }
 
 func (m *Manager) IssueUserSession(user operatoridentity.User, authMethod string) (string, Session, error) {
@@ -146,22 +133,6 @@ func (m *Manager) IssueUserSession(user operatoridentity.User, authMethod string
 		Role:       user.Role,
 		AuthMethod: authMethod,
 	})
-}
-
-func (m *Manager) IssueSession(actor string) (string, Session, error) {
-	if m == nil {
-		return "", Session{}, errors.New("operator manager is unavailable")
-	}
-	actor = strings.TrimSpace(actor)
-	if actor == "" || len(actor) > 128 {
-		return "", Session{}, errors.New("operator actor is invalid")
-	}
-	for _, r := range actor {
-		if r < 0x20 || r == 0x7f {
-			return "", Session{}, errors.New("operator actor contains control characters")
-		}
-	}
-	return m.issueSession(Session{Actor: actor, Role: operatoridentity.RoleAdmin, AuthMethod: "trusted-boundary"})
 }
 
 func (m *Manager) issueSession(base Session) (string, Session, error) {
@@ -232,7 +203,7 @@ func (m *Manager) cleanupLocked(now time.Time) {
 	}
 }
 
-func loadOrCreateBootstrapKey(path string) (string, bool, error) {
+func loadOrCreateRecoveryKey(path string) (string, bool, error) {
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return "", false, errors.New("operator key path must be a regular file")
