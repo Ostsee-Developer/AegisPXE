@@ -28,26 +28,19 @@ AegisPXE is implemented in Go and initially targets:
 - Ubuntu Server 26.04 LTS
 - CentOS via Kickstart after the Debian and Ubuntu paths are proven stable
 
-## 0.0.3 development slice
+## 0.0.3 discovery milestone
 
-The current slice is **headless machine discovery with an embedded read-only Studio**.
-
-A test machine can fetch `/boot/discovery.ipxe`, submit bounded identity observations, receive a non-provisioning server decision and appear immediately in the AegisPXE machine inventory. Repeated check-ins resolve to the same machine ID and append discovery events rather than creating duplicates.
+The headless discovery milestone is proven on a packaged installation with real UEFI PXE clients. Unknown machines register as `pending`, repeated boots resolve to the same machine, identity conflicts and invalid identities fail closed, and correlated audit/log records remain available across package reinstall.
 
 The Debian package installs the `ipxe` and `tftpd-hpa` runtime dependencies. When `tftpd-hpa` already has a safe absolute `TFTP_DIRECTORY`, package setup materializes `ipxe.efi` and `undionly.kpxe` into that root without overwriting a different pre-existing bootloader. See [`docs/PXE_RUNTIME.md`](docs/PXE_RUNTIME.md).
 
-The Studio is available at `/ui/` on the configured AegisPXE HTTP listener and currently exposes:
+The Studio is available at `/ui/` on the configured AegisPXE HTTP listener and exposes machine inventory, policy state, architecture/firmware observations, first/last seen, identifiers and the append-only machine timeline.
 
-- machine inventory and policy counts,
-- pending/local/provision/blocked state,
-- architecture and firmware observations,
-- first/last seen,
-- stored machine identifiers,
-- append-only machine event timeline.
+## 0.1.0 development slice
 
-The UI is intentionally read-only until operator authentication and authorization exist. 0.0.3 never exposes an installer, seed, profile or installation credential. Even policy `provision` returns a local/non-provisioning decision until a later milestone can prove an immutable InstallationSpec is armed.
+Development now targets **Debian 13 Standard**. `0.1.0-dev.1` introduces the immutable `InstallationSpec` foundation: server-assigned installation identity, pinned driver/profile revisions, artifact identities with canonical SHA-256 digests, storage/security snapshots, non-secret lifecycle credential identity and atomic `INSTALLATION_CREATED` audit output.
 
-See [`docs/0.0.3-discovery-slice.md`](docs/0.0.3-discovery-slice.md) for the API, iPXE transport and E2E contract.
+This foundation deliberately exposes no administrative creation endpoint and boots no installer yet. Creating or arming installations remains unavailable until an explicit authenticated operator boundary exists. See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md).
 
 ## Project constitution
 
@@ -72,6 +65,6 @@ The Project Constitution workflow verifies that foundational contracts remain pr
 
 ## Current milestone
 
-**0.0.3: Headless PXE discovery E2E.**
+**0.1.0: Debian 13 Standard.**
 
-The release gate is a repeatable packaged discovery loop plus a disposable real-VM PXE test. Debian installer code begins only after that gate is stable and diagnosable.
+The current development step is the immutable InstallationSpec foundation. The next vertical step resolves and verifies Debian 13 installer artifacts against that frozen contract before any real installer is armed.

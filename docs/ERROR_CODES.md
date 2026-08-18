@@ -1,52 +1,27 @@
-# Error Code Contract
+# Error-code contract
 
-AegisPXE errors exposed to operators, lifecycle events or APIs use stable machine-readable codes plus a human-readable message.
+AegisPXE errors that cross a domain or operational boundary use stable machine-readable codes. Human-readable messages may improve over time; the code remains the integration and diagnostic contract.
 
-## Format
+## Discovery and machine domain
 
-```text
-<namespace><number>_<SYMBOLIC_NAME>
-```
+- `PXE001_DISCOVERY_RATE_LIMITED`: unauthenticated discovery request exceeded the bounded per-source rate.
+- `MAC001_MACHINE_IDENTITY_CONFLICT`: supplied identifiers resolve to different known machines. AegisPXE refuses to guess or merge them.
+- `MAC002_MACHINE_IDENTITY_INVALID`: machine identity observations are invalid or insufficient.
+- `MAC003_MACHINE_NOT_FOUND`: requested machine does not exist.
+- `MAC004_MACHINE_POLICY_INVALID`: requested machine policy or policy mutation metadata is invalid.
 
-Examples:
+## Installation domain
 
-- `PXE001_DISCOVERY_RATE_LIMITED`
-- `MAC001_MACHINE_IDENTITY_CONFLICT`
-- `ART002_ARTIFACT_HASH_MISMATCH`
-- `DRV001_DRIVER_RENDER_FAILED`
-- `INS003_INSTALLER_STAGE_FAILED`
-- `SEC002_INVALID_INSTALLATION_TOKEN`
-- `VAL001_VALIDATION_FAILED`
+- `INS001_INSTALLATION_SPEC_INVALID`: an InstallationSpec violates the immutable installation contract, including invalid target/profile/storage metadata, missing canonical artifact digests, or caller-assigned server identity fields.
+- `INS002_INSTALLATION_NOT_FOUND`: requested InstallationSpec does not exist.
 
-## Namespaces
+## System/storage
 
-- `PXE`: bootstrap, discovery and boot decision transport,
-- `MAC`: machine identity/discovery,
-- `ART`: artifact resolution/download/integrity,
-- `DRV`: driver compile/render/capability,
-- `INS`: native installer and first-boot runtime,
-- `SEC`: authentication, authorization, trust and secret handling,
-- `VAL`: desired-state validation,
-- `SYS`: internal service/storage/platform failures.
+- `SYS001_STORAGE_FAILURE`: persistence, transaction, schema or storage decoding failed.
 
 ## Rules
 
-1. A released code is an API/operations contract.
-2. Human-readable messages may improve without changing the code.
-3. Codes are not reused for unrelated failures.
-4. Sensitive values never appear in the code or attached message.
-5. An error event records the stage/component and relevant correlation IDs.
-6. A new operational failure mode normally receives a code when operators may need to distinguish or automate around it.
-
-## Registry
-
-| Code | Meaning |
-| --- | --- |
-| `PXE001_DISCOVERY_RATE_LIMITED` | A discovery source exceeded the bounded request window and was refused before state mutation. |
-| `MAC001_MACHINE_IDENTITY_CONFLICT` | Two trusted identity observations resolve to different stored machines. |
-| `MAC002_MACHINE_IDENTITY_INVALID` | The supplied machine observation contains no usable identity or an invalid identifier. |
-| `MAC003_MACHINE_NOT_FOUND` | A requested machine ID does not exist. |
-| `MAC004_MACHINE_POLICY_INVALID` | A requested machine policy or policy mutation request is invalid. |
-| `SYS001_STORAGE_FAILURE` | The persistent store could not complete an operation safely. |
-
-The Go registry in `internal/fault` is authoritative for allocated codes. Documentation and source must change together when a new operator-visible code is introduced.
+- Stable codes are logged at the point where the failure becomes authoritative.
+- Secrets, credentials and recovery material never appear in codes, messages or normal structured fields.
+- A lower-trust client may receive a deliberately generic failure while the server log preserves the stable internal code and correlation/request ID.
+- New externally meaningful domain failures receive a code before they are relied on by UI, API, driver or automation behavior.
