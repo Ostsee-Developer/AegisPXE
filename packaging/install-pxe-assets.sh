@@ -55,10 +55,10 @@ materialize() {
   fi
 
   if [ -e "$target_file" ] || [ -L "$target_file" ]; then
-    if cmp -s "$source_file" "$target_file"; then
+    if [ -f "$target_file" ] && [ ! -L "$target_file" ] && cmp -s "$source_file" "$target_file"; then
       log "$target_name already present in $root"
     else
-      log "leaving existing $target_file unchanged because it differs from the packaged iPXE asset"
+      log "leaving existing $target_file unchanged"
     fi
     return 0
   fi
