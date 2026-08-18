@@ -3,9 +3,10 @@ package event
 import "time"
 
 const (
-	EntityMachine      = "machine"
-	MachineDiscovered = "MACHINE_DISCOVERED"
-	MachineSeen       = "MACHINE_SEEN"
+	EntityMachine         = "machine"
+	MachineDiscovered    = "MACHINE_DISCOVERED"
+	MachineSeen          = "MACHINE_SEEN"
+	MachinePolicyChanged = "MACHINE_POLICY_CHANGED"
 )
 
 type Event struct {
@@ -15,6 +16,7 @@ type Event struct {
 	Type       string
 	OccurredAt time.Time
 	RequestID  string
+	Actor      string
 	Message    string
 	ErrorCode  string
 }
