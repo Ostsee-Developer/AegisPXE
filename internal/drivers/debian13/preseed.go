@@ -46,6 +46,7 @@ func renderPreseed(spec installation.Spec) (driver.SeedBundle, error) {
 
 	var out strings.Builder
 	lines := []string{
+		"#_preseed_V1",
 		"# AegisPXE Debian 13 Standard preseed",
 		"d-i debian-installer/locale string " + spec.Profile.Locale,
 		"d-i keyboard-configuration/xkb-keymap select " + spec.Profile.Keyboard,

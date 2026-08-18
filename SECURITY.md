@@ -62,7 +62,9 @@ Credential values must not appear in query strings, public boot scripts, kernel 
 
 Seeds are installation-scoped. Fetching or rendering a seed is not equivalent to claiming or starting the installation.
 
-The Debian 13 Standard driver prefers initrd preseeding. Its rendered Preseed contains desired-state configuration and SSH public keys but no lifecycle credential, reusable password, private key or recovery secret. Keeping the Preseed inside a per-installation initrd derivative removes the need for a credential-bearing network Preseed URL.
+The Debian 13 Standard driver uses initrd preseeding. Its rendered Preseed contains desired-state configuration and SSH public keys but no lifecycle credential, reusable password, private key or recovery secret. The assignment-gated iPXE script loads the verified Debian initrd and then injects the served `preseed.cfg` as `/preseed.cfg` into iPXE's magic initrd. Debian Installer consumes that file as native initrd preseed material.
+
+The Preseed endpoint is therefore non-secret public boot material, not a secret-release channel. It is available only while the exact InstallationSpec remains armed for an operator-approved Machine. AegisPXE does not use Debian `preseed/url` for this path and does not maintain a custom CPIO/initrd repacker.
 
 If a future driver requires secret-bearing seed delivery, access remains valid only for the period required by the native installer and is revoked according to explicit lifecycle policy, normally after successful completion or administrative cancellation/expiry. That path additionally requires cryptographic boot trust.
 

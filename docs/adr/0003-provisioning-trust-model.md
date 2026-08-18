@@ -9,7 +9,7 @@ AegisPXE discovers machines before it can trust them. MAC addresses and SMBIOS U
 
 The Debian 13 Standard path now has immutable InstallationSpecs, verified artifacts, typed BootSpecs and deterministic Preseed rendering. The next step must define which facts authorize scheduling, which facts authenticate a booting client, and when installation-scoped credentials may be released.
 
-Debian supports initrd preseeding. AegisPXE can therefore place non-secret Preseed material in a per-installation initrd derivative instead of exposing a network seed URL. This removes one credential-bearing HTTP boundary but does not authenticate the machine itself.
+Debian supports initrd preseeding. iPXE can construct a magic initrd by loading the normal Debian initrd and injecting an additional downloaded file at a chosen path. AegisPXE can therefore serve the non-secret Preseed as assignment-gated public boot material and have iPXE inject it as `/preseed.cfg`, which Debian Installer loads as initrd preseeding. This avoids a Debian `preseed/url` credential channel and avoids maintaining a custom CPIO/initrd repacker.
 
 ## Decision
 
@@ -55,7 +55,9 @@ Operator approval and an armed assignment are necessary but not sufficient to re
 
 ### 6. Debian Preseed transport
 
-For Debian 13 Standard, AegisPXE prefers initrd preseeding over network Preseed URLs. The per-installation Preseed contains no lifecycle credential, password, private key or other reusable secret.
+For Debian 13 Standard, AegisPXE uses initrd preseeding without a custom initrd build step. The assignment-gated boot script loads the verified Debian `initrd.gz`, then instructs iPXE to fetch the rendered non-secret `preseed.cfg` and inject it as `/preseed.cfg` into the magic initrd.
+
+The Preseed endpoint is classified as public boot material rather than secret release. It is reachable only while the exact InstallationSpec is armed for an operator-approved Machine. The Preseed contains no lifecycle credential, reusable password, private key or recovery secret.
 
 The lifecycle credential remains behind the cryptographic boot-trust boundary and is not embedded into public boot scripts, kernel arguments, InstallationSpec metadata or Preseed content.
 
@@ -67,5 +69,6 @@ Until operator authentication and authorization exists, Studio may display trust
 
 - A spoofed MAC or SMBIOS UUID can never obtain secret-bearing installer authority by itself.
 - AegisPXE can expose richer read-only provisioning state in Studio without weakening authorization.
-- Debian can progress toward a complete unattended boot using initrd preseeding while lifecycle authentication remains a separate, explicit trust problem.
+- Debian can perform native initrd preseeding without a credential-bearing `preseed/url` and without AegisPXE owning archive-repacking code.
+- Public boot reads remain retryable and non-consuming; only authenticated installer telemetry may advance runtime lifecycle state.
 - The first real provisioning E2E must not be called security-complete until cryptographic boot trust and authenticated installer telemetry are proven.

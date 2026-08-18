@@ -88,7 +88,7 @@ func RenderBoot(spec installation.Spec) (boot.Spec, error) {
 			{Key: "priority", Value: "critical"},
 			{Key: "interface", Value: "auto"},
 		},
-		SeedRef: "installation/" + spec.ID + "/debian-preseed",
+		SeedRef: "preseed.cfg",
 	}
 	if err := result.Validate(); err != nil {
 		return boot.Spec{}, fmt.Errorf("rendered boot spec is invalid: %w", err)
