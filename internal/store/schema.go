@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 3
+const currentSchemaVersion = 4
 
 func (s *Store) initialize(ctx context.Context) error {
 	for _, pragma := range []string{
@@ -30,7 +30,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			version INTEGER NOT NULL
 		)`,
 		`INSERT INTO schema_meta(version)
-		 SELECT 3 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
+		 SELECT 4 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
 		`CREATE TABLE IF NOT EXISTS machines (
 			id TEXT PRIMARY KEY,
 			policy TEXT NOT NULL CHECK(policy IN ('pending','local','provision','blocked')),
@@ -80,6 +80,33 @@ func (s *Store) initialize(ctx context.Context) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_installation_assignments_armed_machine
 		 ON installation_assignments(machine_id) WHERE state='armed'`,
 		`CREATE INDEX IF NOT EXISTS idx_installation_assignments_installation ON installation_assignments(installation_id)`,
+		`CREATE TABLE IF NOT EXISTS operator_users (
+			id TEXT PRIMARY KEY,
+			provider TEXT NOT NULL,
+			subject TEXT NOT NULL,
+			display_name TEXT NOT NULL,
+			email TEXT NOT NULL DEFAULT '',
+			role TEXT NOT NULL DEFAULT '' CHECK(role IN ('','admin','operator')),
+			status TEXT NOT NULL CHECK(status IN ('pending_review','enrollment_required','active','blocked')),
+			webauthn_handle BLOB NOT NULL UNIQUE,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			approved_at TEXT NOT NULL DEFAULT '',
+			approved_by TEXT NOT NULL DEFAULT '',
+			UNIQUE(provider,subject)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_operator_users_status ON operator_users(status,created_at)`,
+		`CREATE TABLE IF NOT EXISTS operator_credentials (
+			user_id TEXT NOT NULL REFERENCES operator_users(id) ON DELETE CASCADE,
+			rp_id TEXT NOT NULL,
+			credential_id BLOB NOT NULL,
+			credential_json BLOB NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			last_used_at TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY(user_id,rp_id,credential_id),
+			UNIQUE(rp_id,credential_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS events (
 			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
 			entity_type TEXT NOT NULL,
@@ -133,6 +160,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			"to_version", currentSchemaVersion,
 			"profile_snapshot_column_added", profileColumnAdded,
 			"assignment_schema_added", fromVersion < 3,
+			"operator_identity_schema_added", fromVersion < 4,
 			"result", "success",
 		)
 	}
