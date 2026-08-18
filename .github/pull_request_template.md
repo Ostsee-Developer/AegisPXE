@@ -32,17 +32,26 @@ Describe the behavior and why it belongs in the current vertical slice.
 
 ## Verification
 
+- [ ] Tests are small and contract-focused rather than reproducing production logic.
+- [ ] One test does not attempt to validate an entire subsystem.
 - [ ] Unit tests pass.
 - [ ] Integration tests pass where applicable.
 - [ ] The E2E plan/test is updated for provisioning behavior.
 - [ ] At least one relevant failure mode is covered.
+- [ ] CI jobs have distinct failure meanings and do not duplicate the same logical test unnecessarily.
+
+## Packaging
+
+- [ ] Package-owned files/permissions/service behavior are updated when applicable.
+- [ ] The generated `.deb` remains installable from a clean supported environment once executable milestones begin.
+- [ ] Package installation does not silently invent network/provisioning configuration.
 
 ## Documentation
 
-- [ ] Architecture/security/lifecycle/observability/driver docs are updated when their contract changed.
+- [ ] Architecture/security/lifecycle/observability/driver/testing/packaging docs are updated when their contract changed.
 - [ ] An ADR is added or updated for an architectural decision.
 - [ ] User/operator documentation is updated where applicable.
 
 ## Notes for reviewers
 
-Call out the highest-risk assumption, native installer hook, trust-boundary change, or observability decision in this PR.
+Call out the highest-risk assumption, native installer hook, trust-boundary change, observability decision or test that protects the most important contract in this PR.
