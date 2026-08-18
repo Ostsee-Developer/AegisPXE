@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 )
+
+const currentSchemaVersion = 2
 
 func (s *Store) initialize(ctx context.Context) error {
 	for _, pragma := range []string{
@@ -54,6 +57,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			architecture TEXT NOT NULL,
 			profile_id TEXT NOT NULL,
 			profile_revision TEXT NOT NULL,
+			profile_json TEXT NOT NULL DEFAULT '{}',
 			artifacts_json TEXT NOT NULL,
 			storage_json TEXT NOT NULL,
 			security_json TEXT NOT NULL,
@@ -80,8 +84,54 @@ func (s *Store) initialize(ctx context.Context) error {
 			return fmt.Errorf("apply schema: %w", err)
 		}
 	}
+
+	var version int
+	if err := tx.QueryRowContext(ctx, `SELECT version FROM schema_meta LIMIT 1`).Scan(&version); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if version > currentSchemaVersion {
+		return fmt.Errorf("database schema version %d is newer than supported version %d", version, currentSchemaVersion)
+	}
+
+	hasProfileJSON, err := columnExists(ctx, tx, "installation_specs", "profile_json")
+	if err != nil {
+		return fmt.Errorf("inspect installation schema: %w", err)
+	}
+	if !hasProfileJSON {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE installation_specs ADD COLUMN profile_json TEXT NOT NULL DEFAULT '{}'`); err != nil {
+			return fmt.Errorf("migrate installation profile snapshot: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE schema_meta SET version=?`, currentSchemaVersion); err != nil {
+		return fmt.Errorf("update schema version: %w", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit schema: %w", err)
 	}
 	return nil
+}
+
+func columnExists(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, dataType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
 }
