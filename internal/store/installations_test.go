@@ -124,6 +124,7 @@ func installationProfile() profile.Snapshot {
 			Username:          "guardian",
 			FullName:          "Aegis Administrator",
 			AuthorizedSSHKeys: []string{"ssh-ed25519 " + payload + " test"},
+			PasswordlessSudo:  true,
 		},
 		Packages: []string{"jq"},
 	}
