@@ -2,12 +2,10 @@ package event
 
 import "time"
 
-const (
-	EntityMachine         = "machine"
-	MachineDiscovered    = "MACHINE_DISCOVERED"
-	MachineSeen          = "MACHINE_SEEN"
-	MachinePolicyChanged = "MACHINE_POLICY_CHANGED"
-)
+const EntityMachine = "machine"
+const MachineDiscovered = "MACHINE_DISCOVERED"
+const MachineSeen = "MACHINE_SEEN"
+const MachinePolicyChanged = "MACHINE_POLICY_CHANGED"
 
 type Event struct {
 	Sequence   int64
