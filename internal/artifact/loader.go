@@ -41,17 +41,17 @@ func (l *HTTPLoader) Load(ctx context.Context, descriptor Descriptor, requestID,
 		return nil, fault.New(fault.ArtifactFetchFailed, "artifact load correlation identifiers are required", nil)
 	}
 	if err := descriptor.Validate(); err != nil {
-		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "invalid_descriptor", started)
+		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "invalid_descriptor", err.Error(), started)
 		return nil, fault.New(fault.ArtifactFetchFailed, "artifact descriptor is invalid", err)
 	}
 	if descriptor.Size > maxServedArtifactBytes {
-		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "size_limit", started)
+		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "size_limit", "artifact exceeds serving size limit", started)
 		return nil, fault.New(fault.ArtifactFetchFailed, "artifact exceeds serving size limit", nil)
 	}
 
 	source, err := url.Parse(descriptor.SourceURL)
 	if err != nil {
-		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "invalid_source", started)
+		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "invalid_source", err.Error(), started)
 		return nil, fault.New(fault.ArtifactFetchFailed, "artifact source URL is invalid", err)
 	}
 	client := *l.client
@@ -67,31 +67,33 @@ func (l *HTTPLoader) Load(ctx context.Context, descriptor Descriptor, requestID,
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, descriptor.SourceURL, nil)
 	if err != nil {
-		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "request_build", started)
+		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "request_build", err.Error(), started)
 		return nil, fault.New(fault.ArtifactFetchFailed, "could not build artifact request", err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "fetch", started)
+		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "fetch", err.Error(), started)
 		return nil, fault.New(fault.ArtifactFetchFailed, "could not fetch pinned artifact", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "http_status", started)
-		return nil, fault.New(fault.ArtifactFetchFailed, "pinned artifact source returned an unexpected HTTP status", fmt.Errorf("status %d", resp.StatusCode))
+		cause := fmt.Sprintf("unexpected HTTP status %d", resp.StatusCode)
+		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "http_status", cause, started)
+		return nil, fault.New(fault.ArtifactFetchFailed, "pinned artifact source returned an unexpected HTTP status", errors.New(cause))
 	}
 
 	content, err := io.ReadAll(io.LimitReader(resp.Body, descriptor.Size+1))
 	if err != nil {
-		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "read", started)
+		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactFetchFailed, "read", err.Error(), started)
 		return nil, fault.New(fault.ArtifactFetchFailed, "could not read pinned artifact", err)
 	}
 	if int64(len(content)) != descriptor.Size {
-		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactHashMismatch, "size_mismatch", started)
+		cause := fmt.Sprintf("size mismatch: expected %d bytes, received %d", descriptor.Size, len(content))
+		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactHashMismatch, "size_mismatch", cause, started)
 		return nil, fault.New(fault.ArtifactHashMismatch, "artifact size does not match pinned descriptor", nil)
 	}
 	if err := VerifyContent(descriptor, content); err != nil {
-		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactHashMismatch, "hash_mismatch", started)
+		l.logFailure(ctx, descriptor, requestID, installationID, fault.ArtifactHashMismatch, "hash_mismatch", err.Error(), started)
 		return nil, fault.New(fault.ArtifactHashMismatch, "artifact content does not match pinned digest", err)
 	}
 
@@ -99,6 +101,6 @@ func (l *HTTPLoader) Load(ctx context.Context, descriptor Descriptor, requestID,
 	return content, nil
 }
 
-func (l *HTTPLoader) logFailure(ctx context.Context, descriptor Descriptor, requestID, installationID, code, result string, started time.Time) {
-	l.logger.WarnContext(ctx, "artifact fetch or verification failed", "component", "artifact.loader", "operation", "fetch_verified", "request_id", requestID, "installation_id", installationID, "artifact_id", descriptor.ID, "artifact_name", descriptor.Name, "artifact_digest", descriptor.Digest, "result", result, "error_code", code, "duration_ms", time.Since(started).Milliseconds())
+func (l *HTTPLoader) logFailure(ctx context.Context, descriptor Descriptor, requestID, installationID, code, result, cause string, started time.Time) {
+	l.logger.WarnContext(ctx, "artifact fetch or verification failed", "component", "artifact.loader", "operation", "fetch_verified", "request_id", requestID, "installation_id", installationID, "artifact_id", descriptor.ID, "artifact_name", descriptor.Name, "artifact_digest", descriptor.Digest, "result", result, "error_code", code, "cause", cause, "duration_ms", time.Since(started).Milliseconds())
 }
