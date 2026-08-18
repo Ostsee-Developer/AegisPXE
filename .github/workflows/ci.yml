@@ -23,7 +23,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -z "$(gofmt -l cmd internal)"
+          unformatted="$(gofmt -l cmd internal)"
+          if [ -n "$unformatted" ]; then
+            echo "Go files requiring gofmt:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
           go test ./...
           go vet ./...
           go build ./cmd/aegispxe-server
