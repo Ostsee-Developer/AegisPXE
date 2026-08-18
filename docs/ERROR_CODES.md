@@ -10,7 +10,7 @@ AegisPXE errors exposed to operators, lifecycle events or APIs use stable machin
 
 Examples:
 
-- `PXE001_BOOT_DECISION_FAILED`
+- `PXE001_DISCOVERY_RATE_LIMITED`
 - `MAC001_MACHINE_IDENTITY_CONFLICT`
 - `ART002_ARTIFACT_HASH_MISMATCH`
 - `DRV001_DRIVER_RENDER_FAILED`
@@ -40,10 +40,9 @@ Examples:
 
 ## Registry
 
-Allocated with the first executable machine-domain slice:
-
 | Code | Meaning |
 | --- | --- |
+| `PXE001_DISCOVERY_RATE_LIMITED` | A discovery source exceeded the bounded request window and was refused before state mutation. |
 | `MAC001_MACHINE_IDENTITY_CONFLICT` | Two trusted identity observations resolve to different stored machines. |
 | `MAC002_MACHINE_IDENTITY_INVALID` | The supplied machine observation contains no usable identity or an invalid identifier. |
 | `MAC003_MACHINE_NOT_FOUND` | A requested machine ID does not exist. |
