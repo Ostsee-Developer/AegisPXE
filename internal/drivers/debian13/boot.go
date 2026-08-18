@@ -15,7 +15,7 @@ func ValidateSpec(spec installation.Spec) error {
 		return fmt.Errorf("invalid installation spec: %w", err)
 	}
 	if spec.ID == "" {
-		return errors.New("installation spec must have a server-assigned ID before boot rendering")
+		return errors.New("installation spec must have a server-assigned ID before driver rendering")
 	}
 	if spec.DriverID != DriverID {
 		return errors.New("installation spec is assigned to a different driver")
@@ -25,6 +25,15 @@ func ValidateSpec(spec installation.Spec) error {
 	}
 	if spec.OSRelease != "13" || spec.Architecture != debianArch {
 		return errors.New("installation target is not Debian 13 amd64")
+	}
+	if spec.Storage.Mode != "whole-disk" || spec.Storage.Filesystem != "ext4" || spec.Storage.Encrypted || spec.Storage.TPM2 {
+		return errors.New("Debian 13 driver v1 supports only unencrypted whole-disk ext4 storage")
+	}
+	if spec.Security.RootLogin || spec.Security.SSHPasswordAuthentication || !spec.Security.AutomaticSecurityUpdates {
+		return errors.New("Debian 13 Standard requires root login disabled, SSH password authentication disabled, and automatic security updates enabled")
+	}
+	if !spec.Profile.Admin.PasswordlessSudo {
+		return errors.New("Debian 13 Standard requires passwordless sudo for the key-only administrator")
 	}
 	if len(spec.Artifacts) != 2 {
 		return errors.New("Debian 13 boot requires exactly kernel and initrd artifacts")
