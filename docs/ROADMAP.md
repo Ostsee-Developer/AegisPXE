@@ -66,7 +66,11 @@ Status: complete. The packaged 0.0.3 development path passed the real UEFI PXE r
 
 `0.1.0-dev.3` completes the InstallationSpec/BootSpec split. InstallationSpec remains the only authoritative desired-state record, artifact roles are unique, driver contract versioning is independent from the AegisPXE application version, and the Debian 13 driver validates the pinned artifact set before deterministically rendering a bounded secret-free BootSpec. BootSpec is not independently persisted.
 
-The next slice can persist/serve verified artifact bytes and render the Debian unattended seed. Fetching boot material must still not imply `INSTALLER_STARTED` or consume a provisioning assignment.
+`0.1.0-dev.4` resolves the selected profile revision into a versioned immutable ProfileSnapshot, pins the whole-device installation target, establishes the first strict Debian Standard capability gate, renders the native Debian Preseed SeedBundle, and adds correlated verified-artifact loading. Driver render, artifact verification and schema migration paths are structured-log observable and use stable failure codes. Seed/key/credential content is excluded from normal logs.
+
+The dev.4 seed is not exposed over HTTP and the verified artifact loader is not registered as a public boot endpoint. Network seed delivery still needs a secret-safe installation credential transport, and public artifact delivery must be bound to an armed Machine-to-Installation assignment. Boot-material reads do not imply `INSTALLER_STARTED` or consume an assignment.
+
+The next slice establishes the armed assignment and authorized installer boot transport. Only after that boundary is proven should the real disposable VM be allowed to chain into the Debian installer.
 
 Gate: 10 consecutive unattended E2E successes and useful telemetry for intentionally failed runs, using a clean AegisPXE `.deb` installation.
 
