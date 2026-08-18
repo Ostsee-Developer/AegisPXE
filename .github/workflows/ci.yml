@@ -33,6 +33,17 @@ jobs:
           go vet ./...
           OUTPUT=/tmp/aegispxe-ci-build bash scripts/build.sh >/dev/null
           test "$(/tmp/aegispxe-ci-build -version)" = "$(bash scripts/version.sh project)"
+      - name: Verify version derivation
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '1.0.0-rc.1\n' > /tmp/aegispxe-version-rc
+          printf '1.0.0\n' > /tmp/aegispxe-version-stable
+          rc_version="$(AEGISPXE_VERSION_FILE=/tmp/aegispxe-version-rc bash scripts/version.sh debian)"
+          stable_version="$(AEGISPXE_VERSION_FILE=/tmp/aegispxe-version-stable bash scripts/version.sh debian)"
+          test "$rc_version" = '1.0.0~rc.1'
+          test "$stable_version" = '1.0.0'
+          dpkg --compare-versions "$stable_version" gt "$rc_version"
 
   package-smoke:
     needs: go
