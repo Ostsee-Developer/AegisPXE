@@ -28,6 +28,7 @@ jobs:
             LIFECYCLE.md
             DRIVER_CONTRACT.md
             TESTING.md
+            PACKAGING.md
             CONTRIBUTING.md
             AGENTS.md
             docs/PROFILE_SCHEMA.md
@@ -55,6 +56,8 @@ jobs:
           grep -Fq "A MAC address is an identifier, not an authentication factor" SECURITY.md
           grep -Fq "A driver without telemetry or validation is incomplete" DRIVER_CONTRACT.md
           grep -Fq "Machine discovery is the first technical vertical slice" docs/MACHINE_DISCOVERY.md
+          grep -Fq "One test should prove one contract" TESTING.md
+          grep -Fq "A source-tree-only success does not satisfy the release gate" PACKAGING.md
 
       - name: Forbid accidental interactive-menu contract in core architecture
         shell: bash
