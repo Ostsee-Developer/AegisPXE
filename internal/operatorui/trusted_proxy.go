@@ -12,8 +12,6 @@ import (
 
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
-	"github.com/Ostsee-Developer/AegisPXE/internal/operator"
-	"github.com/Ostsee-Developer/AegisPXE/internal/store"
 )
 
 const trustedProxyProvider = "trusted-proxy"
@@ -75,10 +73,6 @@ func (p TrustedProxy) Enabled() bool {
 	return len(p.prefixes) > 0
 }
 
-// SecureSource verifies the reverse-proxy trust boundary without requiring a
-// user identity. This is deliberately separate from Identity so AegisPXE can
-// offer its own recovery authentication when the trusted proxy is reachable
-// but does not provide an authenticated subject.
 func (p TrustedProxy) SecureSource(r *http.Request) bool {
 	if !p.Enabled() || r == nil {
 		return false
@@ -106,17 +100,6 @@ func (p TrustedProxy) Identity(r *http.Request) (string, bool) {
 	return identity, true
 }
 
-func NewWithTrustedProxy(next http.Handler, state *store.Store, auth *operator.Manager, logger *slog.Logger, proxy TrustedProxy) http.Handler {
-	base := New(next, state, auth, logger)
-	if !proxy.Enabled() {
-		return base
-	}
-	if logger == nil {
-		logger = slog.Default()
-	}
-	return &trustedProxyIdentityHandler{next: base, logger: logger, proxy: proxy}
-}
-
 type trustedProxyIdentityHandler struct {
 	next   http.Handler
 	logger *slog.Logger
@@ -130,9 +113,6 @@ func (h *trustedProxyIdentityHandler) ServeHTTP(w http.ResponseWriter, r *http.R
 	}
 
 	request := r.Clone(r.Context())
-	// This marker is only set after the direct peer and forwarded protocol have
-	// passed the configured TrustedProxy contract. Downstream code never trusts
-	// arbitrary forwarded headers directly.
 	request.TLS = &tls.ConnectionState{}
 	if requestID(request) == "" {
 		id, err := idgen.New("req_")
@@ -182,7 +162,7 @@ func RequireTrustedProxyOrLoopback(next http.Handler, proxy TrustedProxy, logger
 			next.ServeHTTP(w, r)
 			return
 		}
-		logger.WarnContext(r.Context(), "studio request rejected outside trusted proxy boundary",
+		logger.WarnContext(r.Context(), "dashboard request rejected outside trusted proxy boundary",
 			"component", "operator.proxy",
 			"operation", "gate",
 			"remote", remoteHost(r),
@@ -190,16 +170,8 @@ func RequireTrustedProxyOrLoopback(next http.Handler, proxy TrustedProxy, logger
 			"result", "rejected",
 			"cause", "untrusted_proxy_source_or_protocol",
 		)
-		http.Error(w, "studio access denied", http.StatusForbidden)
+		http.Error(w, "dashboard access denied", http.StatusForbidden)
 	})
-}
-
-func validSessionCookie(auth *operator.Manager, cookie *http.Cookie) bool {
-	if auth == nil || cookie == nil || cookie.Value == "" {
-		return false
-	}
-	_, ok := auth.Session(cookie.Value)
-	return ok
 }
 
 func (p TrustedProxy) contains(addr netip.Addr) bool {
