@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -131,5 +130,3 @@ func artifactServingPublicKey() string {
 	payload := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 64)))
 	return "ssh-ed25519 " + payload + " test"
 }
-
-var _ = io.EOF
