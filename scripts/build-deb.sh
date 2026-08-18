@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
+cd "$ROOT_DIR"
+VERSION="$(tr -d '[:space:]' < VERSION)"
 DEB_ARCH="${DEB_ARCH:-$(dpkg --print-architecture)}"
 
 case "$DEB_ARCH" in
@@ -26,10 +27,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" go build \
   -trimpath \
   -ldflags "-s -w -X main.version=$VERSION" \
   -o "$PKG_ROOT/usr/lib/aegispxe/aegispxe-server" \
-  "$ROOT_DIR/cmd/aegispxe-server"
+  ./cmd/aegispxe-server
 
-install -m 0644 "$ROOT_DIR/packaging/aegispxe.env" "$PKG_ROOT/etc/aegispxe/aegispxe.env"
-install -m 0644 "$ROOT_DIR/packaging/aegispxe.service" "$PKG_ROOT/lib/systemd/system/aegispxe.service"
+install -m 0644 packaging/aegispxe.env "$PKG_ROOT/etc/aegispxe/aegispxe.env"
+install -m 0644 packaging/aegispxe.service "$PKG_ROOT/lib/systemd/system/aegispxe.service"
 printf '/etc/aegispxe/aegispxe.env\n' > "$PKG_ROOT/DEBIAN/conffiles"
 
 cat > "$PKG_ROOT/DEBIAN/control" <<EOF
@@ -64,7 +65,15 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
 fi
 EOF
 
-chmod 0755 "$PKG_ROOT/DEBIAN/postinst" "$PKG_ROOT/DEBIAN/prerm"
+cat > "$PKG_ROOT/DEBIAN/postrm" <<'EOF'
+#!/bin/sh
+set -e
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl daemon-reload
+fi
+EOF
+
+chmod 0755 "$PKG_ROOT/DEBIAN/postinst" "$PKG_ROOT/DEBIAN/prerm" "$PKG_ROOT/DEBIAN/postrm"
 OUT="$OUT_DIR/aegispxe_${VERSION}_${DEB_ARCH}.deb"
 dpkg-deb --build --root-owner-group "$PKG_ROOT" "$OUT"
 echo "$OUT"
