@@ -23,11 +23,11 @@ install -d -m 0755 \
   "$PKG_ROOT/etc/aegispxe" \
   "$PKG_ROOT/lib/systemd/system"
 
-CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" go build \
-  -trimpath \
-  -ldflags "-s -w -X main.version=$VERSION" \
-  -o "$PKG_ROOT/usr/lib/aegispxe/aegispxe-server" \
-  ./cmd/aegispxe-server
+OUTPUT="$PKG_ROOT/usr/lib/aegispxe/aegispxe-server" \
+GOOS=linux \
+GOARCH="$GOARCH" \
+CGO_ENABLED=0 \
+bash scripts/build.sh >/dev/null
 
 install -m 0644 packaging/aegispxe.env "$PKG_ROOT/etc/aegispxe/aegispxe.env"
 install -m 0644 packaging/aegispxe.service "$PKG_ROOT/lib/systemd/system/aegispxe.service"
