@@ -18,7 +18,7 @@ func TestSnapshotCloneOwnsSlices(t *testing.T) {
 	snapshot := validSnapshot()
 	clone := snapshot.Clone()
 	clone.Admin.AuthorizedSSHKeys[0] = testSSHKey("b")
-	clone.Packages[0] = "curl"
+	clone.Packages[0] = "jq"
 	if clone.Admin.AuthorizedSSHKeys[0] == snapshot.Admin.AuthorizedSSHKeys[0] || clone.Packages[0] == snapshot.Packages[0] {
 		t.Fatal("profile snapshot clone shares mutable slices")
 	}
