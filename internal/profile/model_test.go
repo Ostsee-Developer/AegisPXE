@@ -35,6 +35,7 @@ func validSnapshot() Snapshot {
 			Username:          "guardian",
 			FullName:          "Aegis Administrator",
 			AuthorizedSSHKeys: []string{testSSHKey("a")},
+			PasswordlessSudo:  true,
 		},
 		Packages: []string{"curl"},
 	}
