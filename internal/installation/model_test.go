@@ -30,13 +30,13 @@ func TestCloneOwnsArtifactSlice(t *testing.T) {
 
 func validSpec() Spec {
 	return Spec{
-		MachineID:             "m_test",
-		DriverID:              "debian13",
-		DriverVersion:         "0.1.0-dev.1",
-		OSRelease:             "13",
-		Architecture:          "amd64",
-		ProfileID:             "standard",
-		ProfileRevision:       "rev_1",
+		MachineID:       "m_test",
+		DriverID:        "debian13",
+		DriverVersion:   "0.1.0-dev.1",
+		OSRelease:       "13",
+		Architecture:    "amd64",
+		ProfileID:       "standard",
+		ProfileRevision: "rev_1",
 		Artifacts: []Artifact{{
 			ID:         "artifact_linux",
 			Name:       "linux",
