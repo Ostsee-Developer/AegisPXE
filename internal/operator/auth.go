@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Ostsee-Developer/AegisPXE/internal/operatoridentity"
 )
 
 const (
@@ -25,9 +27,16 @@ const (
 )
 
 type Session struct {
-	Actor     string
-	CSRFToken string
-	ExpiresAt time.Time
+	Actor      string
+	UserID     string
+	Role       operatoridentity.Role
+	AuthMethod string
+	CSRFToken  string
+	ExpiresAt  time.Time
+}
+
+func (s Session) IsAdmin() bool {
+	return s.Role == operatoridentity.RoleAdmin
 }
 
 type sessionRecord struct {
@@ -65,16 +74,16 @@ func LoadOrCreate(path string, logger *slog.Logger) (*Manager, error) {
 		return nil, err
 	}
 	if created {
-		logger.Info("operator bootstrap key created",
+		logger.Info("operator recovery key created",
 			"component", "operator.auth",
-			"operation", "bootstrap_key",
+			"operation", "recovery_key",
 			"path", path,
 			"result", "created",
 		)
 	} else {
-		logger.Info("operator bootstrap key loaded",
+		logger.Info("operator recovery key loaded",
 			"component", "operator.auth",
-			"operation", "bootstrap_key",
+			"operation", "recovery_key",
 			"path", path,
 			"result", "loaded",
 		)
@@ -86,7 +95,7 @@ func New(key string, logger *slog.Logger) (*Manager, error) {
 	key = strings.TrimSpace(key)
 	decoded, err := base64.RawURLEncoding.DecodeString(key)
 	if err != nil || len(decoded) != bootstrapKeyBytes {
-		return nil, errors.New("operator bootstrap key must be 256-bit base64url without padding")
+		return nil, errors.New("operator recovery key must be 256-bit base64url without padding")
 	}
 	if logger == nil {
 		logger = slog.Default()
@@ -104,32 +113,62 @@ func GenerateKey() (string, error) {
 	return randomToken(bootstrapKeyBytes)
 }
 
+// Login is retained for local backwards-compatible recovery tooling. The web
+// dashboard never exposes recovery-key-only authentication.
 func (m *Manager) Login(remote, suppliedKey string) (string, Session, error) {
-	remote = strings.TrimSpace(remote)
-	if remote == "" {
-		remote = "unknown"
+	if err := m.VerifyRecoveryKey(remote, suppliedKey); err != nil {
+		return "", Session{}, err
 	}
-	now := m.now().UTC()
+	return m.issueSession(Session{
+		Actor:      "recovery:operator",
+		Role:       operatoridentity.RoleAdmin,
+		AuthMethod: "legacy-recovery-key",
+	})
+}
 
+func (m *Manager) IssueUserSession(user operatoridentity.User, authMethod string) (string, Session, error) {
+	if m == nil {
+		return "", Session{}, errors.New("operator manager is unavailable")
+	}
+	if user.ID == "" || user.Status != operatoridentity.StatusActive {
+		return "", Session{}, errors.New("operator user is not active")
+	}
+	if err := operatoridentity.ValidateRole(user.Role); err != nil {
+		return "", Session{}, err
+	}
+	authMethod = strings.TrimSpace(authMethod)
+	if authMethod == "" || len(authMethod) > 64 {
+		return "", Session{}, errors.New("operator authentication method is invalid")
+	}
+	return m.issueSession(Session{
+		Actor:      "user:" + user.Subject,
+		UserID:     user.ID,
+		Role:       user.Role,
+		AuthMethod: authMethod,
+	})
+}
+
+func (m *Manager) IssueSession(actor string) (string, Session, error) {
+	if m == nil {
+		return "", Session{}, errors.New("operator manager is unavailable")
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" || len(actor) > 128 {
+		return "", Session{}, errors.New("operator actor is invalid")
+	}
+	for _, r := range actor {
+		if r < 0x20 || r == 0x7f {
+			return "", Session{}, errors.New("operator actor contains control characters")
+		}
+	}
+	return m.issueSession(Session{Actor: actor, Role: operatoridentity.RoleAdmin, AuthMethod: "trusted-boundary"})
+}
+
+func (m *Manager) issueSession(base Session) (string, Session, error) {
+	now := m.now().UTC()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cleanupLocked(now)
-
-	counter := m.attempts[remote]
-	if counter.Started.IsZero() || now.Sub(counter.Started) >= loginWindow {
-		counter = loginCounter{Started: now}
-	}
-	if counter.Count >= maxLoginAttempts {
-		m.attempts[remote] = counter
-		return "", Session{}, errors.New("operator login rate limit exceeded")
-	}
-	counter.Count++
-	m.attempts[remote] = counter
-
-	suppliedDigest := sha256.Sum256([]byte(strings.TrimSpace(suppliedKey)))
-	if subtle.ConstantTimeCompare(suppliedDigest[:], m.keyDigest[:]) != 1 {
-		return "", Session{}, errors.New("operator bootstrap key is invalid")
-	}
 
 	token, err := randomToken(sessionTokenBytes)
 	if err != nil {
@@ -139,14 +178,10 @@ func (m *Manager) Login(remote, suppliedKey string) (string, Session, error) {
 	if err != nil {
 		return "", Session{}, fmt.Errorf("generate operator csrf token: %w", err)
 	}
-	session := Session{
-		Actor:     "bootstrap:operator",
-		CSRFToken: csrf,
-		ExpiresAt: now.Add(SessionDuration),
-	}
-	m.sessions[sha256.Sum256([]byte(token))] = sessionRecord{Session: session}
-	delete(m.attempts, remote)
-	return token, session, nil
+	base.CSRFToken = csrf
+	base.ExpiresAt = now.Add(SessionDuration)
+	m.sessions[sha256.Sum256([]byte(token))] = sessionRecord{Session: base}
+	return token, base, nil
 }
 
 func (m *Manager) Session(token string) (Session, bool) {
@@ -207,11 +242,11 @@ func loadOrCreateBootstrapKey(path string) (string, bool, error) {
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return "", false, fmt.Errorf("read operator bootstrap key: %w", err)
+			return "", false, fmt.Errorf("read operator recovery key: %w", err)
 		}
 		return strings.TrimSpace(string(content)), false, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", false, fmt.Errorf("inspect operator bootstrap key: %w", err)
+		return "", false, fmt.Errorf("inspect operator recovery key: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -223,7 +258,7 @@ func loadOrCreateBootstrapKey(path string) (string, bool, error) {
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return "", false, fmt.Errorf("create operator bootstrap key: %w", err)
+		return "", false, fmt.Errorf("create operator recovery key: %w", err)
 	}
 	ok := false
 	defer func() {
@@ -233,13 +268,13 @@ func loadOrCreateBootstrapKey(path string) (string, bool, error) {
 		}
 	}()
 	if _, err := file.WriteString(key + "\n"); err != nil {
-		return "", false, fmt.Errorf("write operator bootstrap key: %w", err)
+		return "", false, fmt.Errorf("write operator recovery key: %w", err)
 	}
 	if err := file.Sync(); err != nil {
-		return "", false, fmt.Errorf("sync operator bootstrap key: %w", err)
+		return "", false, fmt.Errorf("sync operator recovery key: %w", err)
 	}
 	if err := file.Close(); err != nil {
-		return "", false, fmt.Errorf("close operator bootstrap key: %w", err)
+		return "", false, fmt.Errorf("close operator recovery key: %w", err)
 	}
 	ok = true
 	return key, true, nil
