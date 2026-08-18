@@ -76,7 +76,9 @@ Status: complete. The packaged 0.0.3 development path passed the real UEFI PXE r
 
 `0.1.0-dev.6` implements assignment-authorized public Debian boot transport. A `provision` Machine with an armed Assignment chains from discovery to an installation-scoped iPXE script. The script loads the verified Debian kernel and initrd, fetches the rendered non-secret `preseed.cfg`, and uses iPXE magic-initrd injection to place it at `/preseed.cfg` for native Debian initrd preseeding. No custom initrd repacker and no Debian `preseed/url` channel are introduced. All public reads remain non-consuming and do not imply `INSTALLER_STARTED`.
 
-Before Studio can create/approve/arm/cancel real provisioning work, 0.1.0 must add a minimal authenticated operator boundary with explicit authorization and audit. This prerequisite is intentionally moved into the core Debian milestone rather than deferred to later UX work.
+`0.1.0-dev.7` introduces the minimal bootstrap operator authentication boundary required before administrative Studio mutations. A local 256-bit bootstrap key is exchanged over direct TLS or loopback for an 8-hour server-side session. Browser mutations require session-bound CSRF, login attempts are rate-limited, and cleartext non-loopback HTTP remains read-only. Machine policy, Installation arm and Assignment cancel endpoints are already protected by this wrapper, but dev.7 intentionally renders no mutation buttons yet.
+
+The next Studio slice exposes authenticated approve/arm/cancel controls and creates Debian Standard InstallationSpecs through a deliberate workflow that resolves trusted artifacts, snapshots the profile and requires explicit target-disk confirmation. It must not bypass the bootstrap operator boundary.
 
 Cryptographic boot trust then gates lifecycle-credential release and authenticated installer telemetry. TPM-backed attestation is the preferred first hardware-backed path for capable systems; any non-TPM fallback requires an explicit security decision and must not silently downgrade.
 
