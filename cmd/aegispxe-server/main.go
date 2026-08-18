@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -18,15 +19,17 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/httpapi"
 	"github.com/Ostsee-Developer/AegisPXE/internal/observability"
 	"github.com/Ostsee-Developer/AegisPXE/internal/operator"
+	"github.com/Ostsee-Developer/AegisPXE/internal/operatorpasskey"
 	"github.com/Ostsee-Developer/AegisPXE/internal/operatorui"
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
 )
 
-// version is injected from the repository VERSION file by scripts/build.sh.
-// The fallback identifies binaries built directly with `go build` as non-release builds.
 var version = "dev"
 
-const serverWriteTimeout = 10 * time.Minute
+const (
+	serverWriteTimeout = 10 * time.Minute
+	studioLogCapacity  = 2000
+)
 
 type namedHTTPServer struct {
 	name   string
@@ -46,7 +49,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "invalid AEGISPXE_LOG_LEVEL: %v\n", err)
 		os.Exit(2)
 	}
-	logger := observability.New(os.Stdout, level)
+	logBuffer := observability.NewLogBuffer(studioLogCapacity)
+	logger := observability.New(io.MultiWriter(os.Stdout, logBuffer), level)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -59,7 +63,16 @@ func main() {
 
 	operatorAuth, err := operator.LoadOrCreate(env("AEGISPXE_OPERATOR_KEY", "/var/lib/aegispxe/operator.key"), logger)
 	if err != nil {
-		logger.Error("startup failed", "component", "operator.auth", "operation", "bootstrap_key", "error_code", fault.StorageFailure, "error", err)
+		logger.Error("startup failed", "component", "operator.auth", "operation", "recovery_key", "error_code", fault.StorageFailure, "error", err)
+		os.Exit(1)
+	}
+	passkeys, err := operatorpasskey.New(
+		env("AEGISPXE_WEBAUTHN_RP_ID", ""),
+		splitConfigList(env("AEGISPXE_WEBAUTHN_ORIGINS", "")),
+		logger,
+	)
+	if err != nil {
+		logger.Error("startup failed", "component", "operator.auth", "operation", "webauthn_configuration", "error_code", fault.OperatorAuthenticationFailed, "error", err)
 		os.Exit(1)
 	}
 
@@ -95,13 +108,10 @@ func main() {
 		server: newHTTPServer(pxeAddress, pxeSurface(app.Handler())),
 	}}
 	if !strings.EqualFold(studioAddress, "disabled") {
-		studioHandler := operatorui.NewWithTrustedProxy(app.Handler(), state, operatorAuth, logger, proxyTrust)
+		studioHandler := operatorui.NewDashboardWithTrustedProxy(app.Handler(), state, operatorAuth, passkeys, logBuffer, logger, proxyTrust)
 		studioHandler = studioSurface(studioHandler)
 		studioHandler = operatorui.RequireTrustedProxyOrLoopback(studioHandler, proxyTrust, logger)
-		servers = append(servers, namedHTTPServer{
-			name:   "studio",
-			server: newHTTPServer(studioAddress, studioHandler),
-		})
+		servers = append(servers, namedHTTPServer{name: "studio", server: newHTTPServer(studioAddress, studioHandler)})
 	}
 
 	errCh := make(chan error, len(servers))
@@ -114,6 +124,7 @@ func main() {
 			"listener", item.name,
 			"address", item.server.Addr,
 			"trusted_proxy_enabled", item.name == "studio" && proxyTrust.Enabled(),
+			"webauthn_enabled", item.name == "studio" && passkeys != nil,
 			"write_timeout_ms", serverWriteTimeout.Milliseconds(),
 		)
 		go func() {
@@ -152,14 +163,7 @@ func main() {
 }
 
 func newHTTPServer(address string, handler http.Handler) *http.Server {
-	return &http.Server{
-		Addr:              address,
-		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      serverWriteTimeout,
-		IdleTimeout:       60 * time.Second,
-	}
+	return &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: serverWriteTimeout, IdleTimeout: 60 * time.Second}
 }
 
 func pxeSurface(next http.Handler) http.Handler {
@@ -176,8 +180,8 @@ func pxeSurface(next http.Handler) http.Handler {
 func studioSurface(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/" || path == "/ui/" {
-			http.Redirect(w, r, "/ui/operator/", http.StatusTemporaryRedirect)
+		if path == "/" {
+			http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
 			return
 		}
 		if path == "/healthz" || strings.HasPrefix(path, "/ui/") || path == "/api/v1/machines" || strings.HasPrefix(path, "/api/v1/machines/") {
@@ -201,6 +205,12 @@ func validateStudioListen(address string, trustedProxyEnabled bool) error {
 		return errors.New("non-loopback studio listener requires trusted proxy configuration")
 	}
 	return nil
+}
+
+func splitConfigList(value string) []string {
+	return strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n'
+	})
 }
 
 func envFirst(fallback string, names ...string) string {
