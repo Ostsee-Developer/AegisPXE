@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
-VERSION="$(tr -d '[:space:]' < VERSION)"
+VERSION="$(bash scripts/version.sh project)"
+DEB_VERSION="$(bash scripts/version.sh debian)"
 DEB_ARCH="${DEB_ARCH:-$(dpkg --print-architecture)}"
 
 case "$DEB_ARCH" in
@@ -23,11 +24,11 @@ install -d -m 0755 \
   "$PKG_ROOT/etc/aegispxe" \
   "$PKG_ROOT/lib/systemd/system"
 
-CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" go build \
-  -trimpath \
-  -ldflags "-s -w -X main.version=$VERSION" \
-  -o "$PKG_ROOT/usr/lib/aegispxe/aegispxe-server" \
-  ./cmd/aegispxe-server
+OUTPUT="$PKG_ROOT/usr/lib/aegispxe/aegispxe-server" \
+GOOS=linux \
+GOARCH="$GOARCH" \
+CGO_ENABLED=0 \
+bash scripts/build.sh >/dev/null
 
 install -m 0644 packaging/aegispxe.env "$PKG_ROOT/etc/aegispxe/aegispxe.env"
 install -m 0644 packaging/aegispxe.service "$PKG_ROOT/lib/systemd/system/aegispxe.service"
@@ -35,7 +36,7 @@ printf '/etc/aegispxe/aegispxe.env\n' > "$PKG_ROOT/DEBIAN/conffiles"
 
 cat > "$PKG_ROOT/DEBIAN/control" <<EOF
 Package: aegispxe
-Version: $VERSION
+Version: $DEB_VERSION
 Section: admin
 Priority: optional
 Architecture: $DEB_ARCH

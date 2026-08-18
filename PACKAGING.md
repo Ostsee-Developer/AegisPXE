@@ -16,6 +16,38 @@ The first supported package target is Debian-family hosts using `dpkg`/APT. The 
 
 The project may add repository metadata later, but the `.deb` artifact exists before public repository distribution.
 
+## Version source of truth
+
+The repository-root `VERSION` file is the single source of truth for the AegisPXE application version.
+
+Release tags, package metadata, artifact names and embedded binary versions must derive from that file. Version strings must not be duplicated in source code or workflow configuration. `scripts/version.sh` is the canonical derivation helper and `scripts/build.sh` is the canonical binary build entry point. A binary built directly with raw `go build` is intentionally identified as a non-release `dev` build.
+
+Changing the project version therefore requires changing only `VERSION`; CI and release gates verify that generated artifacts agree with it.
+
+The accepted release format is `MAJOR.MINOR.PATCH` with an optional SemVer-style prerelease suffix, for example:
+
+- `0.0.3-dev.1`
+- `0.5.0-beta.2`
+- `0.9.0-rc.1`
+- `1.0.0`
+
+Versions carrying a prerelease suffix are published as GitHub prereleases. A plain `MAJOR.MINOR.PATCH` version is published as a stable GitHub release.
+
+Debian package versions are derived from the same project version but use Debian's `~` prerelease ordering. For example, project version `1.0.0-rc.1` produces package version `1.0.0~rc.1`, while the binary version, Git tag and GitHub release remain `1.0.0-rc.1`. This guarantees that APT considers `1.0.0` newer than its release candidates without introducing a second version source.
+
+## Unattended release contract
+
+Every push to `main` runs the release workflow. The workflow reads `VERSION` and compares it using SemVer precedence against published AegisPXE releases.
+
+- If `VERSION` is already published, the release job exits successfully without producing another release.
+- If `VERSION` is lower than the highest published version, the release job fails closed to prevent accidental downgrades.
+- If `VERSION` is higher, all release gates and package builds must succeed before the workflow creates or verifies the matching `v<VERSION>` tag and publishes the release.
+- If a previous run created the tag but failed before publishing the release, a later run may resume only when that tag still points at the current `main` commit.
+
+This makes changing `VERSION` and pushing to `main` the only required release operation. Manual tag creation is not part of the normal release path. The workflow may also be started manually for recovery, but it performs the exact same version checks and cannot force a duplicate or downgrade release.
+
+The release workflow performs tagging and publication in the same workflow run. It does not depend on the generated tag starting a second workflow.
+
 ## Required package responsibilities
 
 The package owns installation and upgrade of AegisPXE application files, including:
@@ -66,7 +98,7 @@ Database or state migrations must:
 
 ## Build reproducibility
 
-CI must build the `.deb` from repository source. The package version and embedded application version must agree.
+CI must build the `.deb` from repository source. The package version and embedded application version must both be deterministic derivations of `VERSION` and CI must verify the expected mapping.
 
 Before an artifact may be published, CI must inspect at least:
 

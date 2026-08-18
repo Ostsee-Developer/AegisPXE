@@ -1,0 +1,247 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(bash scripts/version.sh project)"
+
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | select(.draft == false) | .tag_name' \
+            > /tmp/aegispxe-release-tags.txt
+
+          VERSION="$version" python3 <<'PY' > /tmp/aegispxe-version.env
+          import os
+          import re
+          import sys
+
+          pattern = re.compile(
+              r"^(0|[1-9][0-9]*)\."
+              r"(0|[1-9][0-9]*)\."
+              r"(0|[1-9][0-9]*)"
+              r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+          )
+
+          def parse(value: str):
+              match = pattern.fullmatch(value)
+              if not match:
+                  raise ValueError(value)
+              core = tuple(int(match.group(index)) for index in (1, 2, 3))
+              prerelease = match.group(4)
+              identifiers = None if prerelease is None else prerelease.split(".")
+              return core, identifiers
+
+          def compare(left: str, right: str) -> int:
+              left_core, left_pre = parse(left)
+              right_core, right_pre = parse(right)
+
+              if left_core != right_core:
+                  return 1 if left_core > right_core else -1
+              if left_pre is None and right_pre is None:
+                  return 0
+              if left_pre is None:
+                  return 1
+              if right_pre is None:
+                  return -1
+
+              for left_id, right_id in zip(left_pre, right_pre):
+                  if left_id == right_id:
+                      continue
+                  left_numeric = left_id.isdigit()
+                  right_numeric = right_id.isdigit()
+                  if left_numeric and right_numeric:
+                      return 1 if int(left_id) > int(right_id) else -1
+                  if left_numeric != right_numeric:
+                      return -1 if left_numeric else 1
+                  return 1 if left_id > right_id else -1
+
+              if len(left_pre) == len(right_pre):
+                  return 0
+              return 1 if len(left_pre) > len(right_pre) else -1
+
+          current = os.environ["VERSION"]
+          try:
+              _, current_pre = parse(current)
+          except ValueError:
+              print(
+                  "VERSION must use MAJOR.MINOR.PATCH or "
+                  "MAJOR.MINOR.PATCH-PRERELEASE syntax.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          released = []
+          with open("/tmp/aegispxe-release-tags.txt", encoding="utf-8") as handle:
+              for raw_tag in handle:
+                  tag = raw_tag.strip()
+                  if not tag.startswith("v"):
+                      continue
+                  candidate = tag[1:]
+                  try:
+                      parse(candidate)
+                  except ValueError:
+                      continue
+                  released.append(candidate)
+
+          highest = None
+          for candidate in released:
+              if highest is None or compare(candidate, highest) > 0:
+                  highest = candidate
+
+          if highest is None:
+              should_release = True
+          else:
+              relation = compare(current, highest)
+              if relation < 0:
+                  print(
+                      f"VERSION {current} is older than the highest published "
+                      f"release {highest}.",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+              should_release = relation > 0
+
+          print(f"version={current}")
+          print(f"tag=v{current}")
+          print(f"release={'true' if should_release else 'false'}")
+          print(f"prerelease={'true' if current_pre is not None else 'false'}")
+          print(f"previous={highest or ''}")
+          PY
+
+          cat /tmp/aegispxe-version.env >> "$GITHUB_OUTPUT"
+          cat /tmp/aegispxe-version.env
+
+      - name: No release required
+        if: steps.version.outputs.release != 'true'
+        shell: bash
+        run: |
+          echo "VERSION ${{ steps.version.outputs.version }} is already published; nothing to do."
+
+      - name: Setup Go
+        if: steps.version.outputs.release == 'true'
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.25.x
+
+      - name: Run release gate
+        if: steps.version.outputs.release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l cmd internal)"
+          if [ -n "$unformatted" ]; then
+            echo "Go files requiring gofmt:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+          go test ./...
+          go vet ./...
+          OUTPUT=/tmp/aegispxe-release-check bash scripts/build.sh >/dev/null
+          test "$(/tmp/aegispxe-release-check -version)" = "${{ steps.version.outputs.version }}"
+
+      - name: Build Debian packages
+        if: steps.version.outputs.release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+
+          for arch in amd64 arm64; do
+            DEB_ARCH="$arch" bash scripts/build-deb.sh
+          done
+
+          version="${{ steps.version.outputs.version }}"
+          deb_version="$(bash scripts/version.sh debian)"
+          for arch in amd64 arm64; do
+            deb="dist/aegispxe_${version}_${arch}.deb"
+            test -f "$deb"
+            test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
+            test "$(dpkg-deb --field "$deb" Version)" = "$deb_version"
+            test "$(dpkg-deb --field "$deb" Architecture)" = "$arch"
+          done
+
+          (
+            cd dist
+            sha256sum aegispxe_*.deb > SHA256SUMS
+          )
+
+      - name: Create or verify release tag
+        if: steps.version.outputs.release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+            tagged_commit="$(git rev-list -n 1 "$tag")"
+            if [ "$tagged_commit" != "$GITHUB_SHA" ]; then
+              echo "Tag $tag already exists on $tagged_commit, expected $GITHUB_SHA." >&2
+              exit 1
+            fi
+            echo "Reusing existing tag $tag on $GITHUB_SHA."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+
+      - name: Publish GitHub release
+        if: steps.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          tag="${{ steps.version.outputs.tag }}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; nothing to publish."
+            exit 0
+          fi
+
+          args=(
+            release create "$tag"
+            dist/aegispxe_*.deb
+            dist/SHA256SUMS
+            --verify-tag
+            --generate-notes
+            --title "AegisPXE ${version}"
+          )
+
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+            args+=(--prerelease --latest=false)
+          else
+            args+=(--latest)
+          fi
+
+          gh "${args[@]}"
