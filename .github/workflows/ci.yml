@@ -78,7 +78,7 @@ jobs:
           grep -Fq '/usr/lib/aegispxe/install-pxe-assets' "$control_dir/postinst"
 
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$deb"
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "./$deb"
           test -f /usr/lib/ipxe/ipxe.efi
           test -f /usr/lib/ipxe/undionly.kpxe
           test -x /usr/lib/aegispxe/install-pxe-assets
