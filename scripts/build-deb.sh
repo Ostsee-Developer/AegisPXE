@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
-VERSION="$(tr -d '[:space:]' < VERSION)"
+VERSION="$(bash scripts/version.sh project)"
+DEB_VERSION="$(bash scripts/version.sh debian)"
 DEB_ARCH="${DEB_ARCH:-$(dpkg --print-architecture)}"
 
 case "$DEB_ARCH" in
@@ -35,7 +36,7 @@ printf '/etc/aegispxe/aegispxe.env\n' > "$PKG_ROOT/DEBIAN/conffiles"
 
 cat > "$PKG_ROOT/DEBIAN/control" <<EOF
 Package: aegispxe
-Version: $VERSION
+Version: $DEB_VERSION
 Section: admin
 Priority: optional
 Architecture: $DEB_ARCH
