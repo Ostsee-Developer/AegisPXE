@@ -14,9 +14,6 @@ func ValidateSpec(spec installation.Spec) error {
 	if err := spec.Validate(); err != nil {
 		return fmt.Errorf("invalid installation spec: %w", err)
 	}
-	if spec.ID == "" {
-		return errors.New("installation spec must have a server-assigned ID before driver rendering")
-	}
 	if spec.DriverID != DriverID {
 		return errors.New("installation spec is assigned to a different driver")
 	}
@@ -62,8 +59,18 @@ func ValidateSpec(spec installation.Spec) error {
 	return nil
 }
 
-func RenderBoot(spec installation.Spec) (boot.Spec, error) {
+func validateRenderableSpec(spec installation.Spec) error {
 	if err := ValidateSpec(spec); err != nil {
+		return err
+	}
+	if strings.TrimSpace(spec.ID) == "" {
+		return errors.New("installation spec must have a server-assigned ID before driver rendering")
+	}
+	return nil
+}
+
+func RenderBoot(spec installation.Spec) (boot.Spec, error) {
+	if err := validateRenderableSpec(spec); err != nil {
 		return boot.Spec{}, err
 	}
 	kernel, _ := requiredArtifact(spec, "linux")
