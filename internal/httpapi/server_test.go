@@ -140,7 +140,7 @@ func TestBootstrapUsesStockIPXEQueryParameters(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("bootstrap status = %d", rec.Code)
 	}
-	want := "chain http://192.0.2.10:8090/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid:uristring}&architecture=${buildarch:uristring}&firmware=${platform:uristring}"
+	want := "chain http://192.0.2.10:8090/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid}&architecture=${buildarch:uristring}&firmware=${platform:uristring}"
 	if !strings.Contains(rec.Body.String(), want) {
 		t.Fatalf("bootstrap missing stock-iPXE discovery chain: %s", rec.Body.String())
 	}
