@@ -48,6 +48,9 @@ Examples:
 | `MAC002_MACHINE_IDENTITY_INVALID` | The supplied machine observation contains no usable identity or an invalid identifier. |
 | `MAC003_MACHINE_NOT_FOUND` | A requested machine ID does not exist. |
 | `MAC004_MACHINE_POLICY_INVALID` | A requested machine policy or policy mutation request is invalid. |
+| `ART001_ARTIFACT_TRUST_FAILED` | Signed release metadata, its trust anchor or a verified checksum manifest could not establish trusted artifact provenance. |
+| `ART002_ARTIFACT_HASH_MISMATCH` | Downloaded artifact content or an installer checksum manifest does not match its trusted SHA-256 identity. |
+| `ART003_ARTIFACT_FETCH_FAILED` | Required artifact or release metadata could not be fetched within the bounded transport contract. |
 | `INS001_INSTALLATION_SPEC_INVALID` | An InstallationSpec violates the immutable installation contract or attempts to supply server-owned identity metadata. |
 | `INS002_INSTALLATION_NOT_FOUND` | A requested InstallationSpec does not exist. |
 | `SYS001_STORAGE_FAILURE` | The persistent store could not complete an operation safely. |
