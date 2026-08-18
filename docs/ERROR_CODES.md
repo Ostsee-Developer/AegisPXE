@@ -40,4 +40,14 @@ Examples:
 
 ## Registry
 
-The concrete registry will live in Go source once implementation begins and this document will be generated or validated against it. Until then, new architecture documents should use symbolic examples rather than allocating large speculative code ranges.
+Allocated with the first executable machine-domain slice:
+
+| Code | Meaning |
+| --- | --- |
+| `MAC001_MACHINE_IDENTITY_CONFLICT` | Two trusted identity observations resolve to different stored machines. |
+| `MAC002_MACHINE_IDENTITY_INVALID` | The supplied machine observation contains no usable identity or an invalid identifier. |
+| `MAC003_MACHINE_NOT_FOUND` | A requested machine ID does not exist. |
+| `MAC004_MACHINE_POLICY_INVALID` | A requested machine policy or policy mutation request is invalid. |
+| `SYS001_STORAGE_FAILURE` | The persistent store could not complete an operation safely. |
+
+The Go registry in `internal/fault` is authoritative for allocated codes. Documentation and source must change together when a new operator-visible code is introduced.
