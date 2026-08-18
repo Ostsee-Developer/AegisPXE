@@ -30,20 +30,20 @@ type installationRow struct {
 }
 
 type installationsData struct {
-	Version          string
-	Rows             []installationRow
-	Armed            int
-	PublicBootReady  int
-	SecretReady      int
+	Version         string
+	Rows            []installationRow
+	Armed           int
+	PublicBootReady int
+	SecretReady     int
 }
 
 type installationData struct {
-	Version     string
-	Spec        installation.Spec
-	Machine     machine.Machine
-	Assignment  *assignment.Assignment
-	Gate        trust.Gate
-	Events      []event.Event
+	Version    string
+	Spec       installation.Spec
+	Machine    machine.Machine
+	Assignment *assignment.Assignment
+	Gate       trust.Gate
+	Events     []event.Event
 }
 
 var installationTemplateFuncs = template.FuncMap{
