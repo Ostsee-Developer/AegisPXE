@@ -24,6 +24,14 @@ const (
 	OperatorSessionRequired         = "SEC004_OPERATOR_SESSION_REQUIRED"
 	OperatorCSRFInvalid             = "SEC005_OPERATOR_CSRF_INVALID"
 	OperatorSecureTransportRequired = "SEC006_SECURE_OPERATOR_TRANSPORT_REQUIRED"
+	OperatorUserPending             = "SEC007_OPERATOR_USER_PENDING_REVIEW"
+	OperatorUserBlocked             = "SEC008_OPERATOR_USER_BLOCKED"
+	OperatorUserNotFound            = "SEC009_OPERATOR_USER_NOT_FOUND"
+	OperatorPasskeyRequired         = "SEC010_OPERATOR_PASSKEY_REQUIRED"
+	OperatorPasskeyFailed           = "SEC011_OPERATOR_PASSKEY_FAILED"
+	OperatorAuthorizationDenied     = "SEC012_OPERATOR_AUTHORIZATION_DENIED"
+	OperatorRecoveryFailed          = "SEC013_OPERATOR_RECOVERY_FAILED"
+	OperatorWebAuthnNotConfigured   = "SEC014_OPERATOR_WEBAUTHN_NOT_CONFIGURED"
 	StorageFailure                  = "SYS001_STORAGE_FAILURE"
 )
 
