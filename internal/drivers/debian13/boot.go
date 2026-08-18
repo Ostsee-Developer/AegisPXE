@@ -10,8 +10,6 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/installation"
 )
 
-const driverID = "debian13"
-
 func ValidateSpec(spec installation.Spec) error {
 	if err := spec.Validate(); err != nil {
 		return fmt.Errorf("invalid installation spec: %w", err)
@@ -19,8 +17,11 @@ func ValidateSpec(spec installation.Spec) error {
 	if spec.ID == "" {
 		return errors.New("installation spec must have a server-assigned ID before boot rendering")
 	}
-	if spec.DriverID != driverID {
+	if spec.DriverID != DriverID {
 		return errors.New("installation spec is assigned to a different driver")
+	}
+	if spec.DriverVersion != DriverVersion {
+		return errors.New("installation spec requires a different Debian driver contract version")
 	}
 	if spec.OSRelease != "13" || spec.Architecture != debianArch {
 		return errors.New("installation target is not Debian 13 amd64")
