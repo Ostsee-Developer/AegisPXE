@@ -25,6 +25,14 @@ func TestSpecValidationRejectsTPMWithoutEncryption(t *testing.T) {
 	}
 }
 
+func TestSpecValidationRejectsPartitionAsTargetDisk(t *testing.T) {
+	spec := validSpec()
+	spec.Storage.TargetDisk = "/dev/vda1"
+	if err := spec.Validate(); err == nil {
+		t.Fatal("expected partition target to be rejected")
+	}
+}
+
 func TestSpecValidationRejectsDuplicateArtifactRoles(t *testing.T) {
 	spec := validSpec()
 	duplicate := spec.Artifacts[0]
@@ -76,7 +84,7 @@ func validSpec() Spec {
 			Size:       1,
 			Provenance: "debian:trixie:test",
 		}},
-		Storage:               Storage{Mode: "whole-disk", Filesystem: "ext4"},
+		Storage:               Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		Security:              Security{AutomaticSecurityUpdates: true},
 		LifecycleCredentialID: "cred_test",
 		CreatedBy:             "system:test",
