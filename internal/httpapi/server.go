@@ -180,7 +180,7 @@ func (s *Server) discover(ctx context.Context, observation machine.Observation, 
 
 func (s *Server) discoveryBootstrap(w http.ResponseWriter, r *http.Request) {
 	base := requestBaseURL(r)
-	endpoint := base + "/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid:uristring}&architecture=${buildarch:uristring}&firmware=${platform:uristring}"
+	endpoint := base + "/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid}&architecture=${buildarch:uristring}&firmware=${platform:uristring}"
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = fmt.Fprintf(w, "#!ipxe\n")
@@ -332,7 +332,6 @@ func (s *Server) allowDiscovery(r *http.Request) bool {
 			if now.Sub(counter.started) >= 2*discoveryWindow {
 				delete(s.limiter.clients, client)
 			}
-		}
 	}
 	if _, known := s.limiter.clients[key]; !known && len(s.limiter.clients) >= 4096 {
 		return false
