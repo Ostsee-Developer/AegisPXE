@@ -1,0 +1,5 @@
+/dist/
+/aegispxe-server
+*.db
+*.db-shm
+*.db-wal
