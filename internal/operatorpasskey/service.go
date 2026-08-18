@@ -35,12 +35,12 @@ type flow struct {
 }
 
 type Service struct {
-	rpID     string
-	wa       *webauthn.WebAuthn
-	logger   *slog.Logger
-	mu       sync.Mutex
-	flows    map[[32]byte]flow
-	now      func() time.Time
+	rpID   string
+	wa     *webauthn.WebAuthn
+	logger *slog.Logger
+	mu     sync.Mutex
+	flows  map[[32]byte]flow
+	now    func() time.Time
 }
 
 func New(rpID string, origins []string, logger *slog.Logger) (*Service, error) {
@@ -91,7 +91,7 @@ func (s *Service) BeginRegistration(user operatoridentity.User) (*protocol.Crede
 	}
 	creation, session, err := s.wa.BeginRegistration(user,
 		webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementPreferred),
-		webauthn.WithUserVerification(protocol.VerificationRequired),
+		webauthn.WithExclusions(webauthn.Credentials(user.WebAuthnCredentials()).CredentialDescriptors()),
 	)
 	if err != nil {
 		return nil, "", err
