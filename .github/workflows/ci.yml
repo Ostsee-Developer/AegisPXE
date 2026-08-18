@@ -64,13 +64,42 @@ jobs:
           test -n "$deb"
           test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
           test "$(dpkg-deb --field "$deb" Version)" = "$(bash scripts/version.sh debian)"
+          dependencies="$(dpkg-deb --field "$deb" Depends)"
+          grep -Fq 'adduser' <<<"$dependencies"
+          grep -Fq 'ipxe' <<<"$dependencies"
+          grep -Fq 'tftpd-hpa' <<<"$dependencies"
           contents="$(dpkg-deb --contents "$deb")"
           grep -Fq './usr/lib/aegispxe/aegispxe-server' <<<"$contents"
+          grep -Fq './usr/lib/aegispxe/install-pxe-assets' <<<"$contents"
           grep -Fq './lib/systemd/system/aegispxe.service' <<<"$contents"
-          sudo dpkg -i "$deb"
+
+          control_dir="$(mktemp -d)"
+          dpkg-deb -e "$deb" "$control_dir"
+          grep -Fq '/usr/lib/aegispxe/install-pxe-assets' "$control_dir/postinst"
+
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "./$deb"
+          test -f /usr/lib/ipxe/ipxe.efi
+          test -f /usr/lib/ipxe/undionly.kpxe
+          test -x /usr/lib/aegispxe/install-pxe-assets
           test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(bash scripts/version.sh project)"
           sudo systemctl is-active --quiet aegispxe.service
           test "$(stat -c '%U:%G' /var/lib/aegispxe)" = "aegispxe:aegispxe"
+      - name: Verify safe TFTP asset materialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          tftp_root="$(mktemp -d)"
+          tftp_config="$(mktemp)"
+          printf 'TFTP_DIRECTORY="%s"\n' "$tftp_root" > "$tftp_config"
+
+          sudo AEGISPXE_TFTPD_CONFIG="$tftp_config" /usr/lib/aegispxe/install-pxe-assets
+          cmp -s /usr/lib/ipxe/ipxe.efi "$tftp_root/ipxe.efi"
+          cmp -s /usr/lib/ipxe/undionly.kpxe "$tftp_root/undionly.kpxe"
+
+          printf 'foreign bootloader\n' | sudo tee "$tftp_root/ipxe.efi" >/dev/null
+          sudo AEGISPXE_TFTPD_CONFIG="$tftp_config" /usr/lib/aegispxe/install-pxe-assets
+          grep -Fxq 'foreign bootloader' "$tftp_root/ipxe.efi"
       - name: Exercise packaged discovery slice
         shell: bash
         run: |

@@ -34,6 +34,8 @@ The current slice is **headless machine discovery with an embedded read-only Stu
 
 A test machine can fetch `/boot/discovery.ipxe`, submit bounded identity observations, receive a non-provisioning server decision and appear immediately in the AegisPXE machine inventory. Repeated check-ins resolve to the same machine ID and append discovery events rather than creating duplicates.
 
+The Debian package installs the `ipxe` and `tftpd-hpa` runtime dependencies. When `tftpd-hpa` already has a safe absolute `TFTP_DIRECTORY`, package setup materializes `ipxe.efi` and `undionly.kpxe` into that root without overwriting a different pre-existing bootloader. See [`docs/PXE_RUNTIME.md`](docs/PXE_RUNTIME.md).
+
 The Studio is available at `/ui/` on the configured AegisPXE HTTP listener and currently exposes:
 
 - machine inventory and policy counts,

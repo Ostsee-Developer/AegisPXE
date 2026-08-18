@@ -61,6 +61,8 @@ The package owns installation and upgrade of AegisPXE application files, includi
 - package metadata and dependencies,
 - safe schema migration invocation once persistent schemas exist.
 
+Starting with the 0.0.3 discovery slice, the package also owns the availability of its stage-1 PXE runtime dependencies. When `tftpd-hpa` already defines a safe absolute `TFTP_DIRECTORY`, package configuration may materialize AegisPXE's iPXE stage-1 files into that root. It must not replace an existing file whose content differs from the packaged iPXE asset. See [`docs/PXE_RUNTIME.md`](docs/PXE_RUNTIME.md).
+
 The package must not silently choose network topology, DHCP ranges, interface bindings, router credentials, installation profiles or machine policy.
 
 ## Filesystem contract
