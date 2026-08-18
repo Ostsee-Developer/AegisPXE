@@ -92,12 +92,14 @@ func (s *Store) initialize(ctx context.Context) error {
 	if version > currentSchemaVersion {
 		return fmt.Errorf("database schema version %d is newer than supported version %d", version, currentSchemaVersion)
 	}
+	fromVersion := version
 
 	hasProfileJSON, err := columnExists(ctx, tx, "installation_specs", "profile_json")
 	if err != nil {
 		return fmt.Errorf("inspect installation schema: %w", err)
 	}
-	if !hasProfileJSON {
+	profileColumnAdded := !hasProfileJSON
+	if profileColumnAdded {
 		if _, err := tx.ExecContext(ctx, `ALTER TABLE installation_specs ADD COLUMN profile_json TEXT NOT NULL DEFAULT '{}'`); err != nil {
 			return fmt.Errorf("migrate installation profile snapshot: %w", err)
 		}
@@ -108,6 +110,9 @@ func (s *Store) initialize(ctx context.Context) error {
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit schema: %w", err)
+	}
+	if fromVersion != currentSchemaVersion || profileColumnAdded {
+		s.logger.InfoContext(ctx, "storage schema migrated", "component", "store.schema", "operation", "migrate", "from_version", fromVersion, "to_version", currentSchemaVersion, "profile_snapshot_column_added", profileColumnAdded, "result", "success")
 	}
 	return nil
 }
