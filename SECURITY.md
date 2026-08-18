@@ -117,7 +117,22 @@ The initial role model should remain small. Security-sensitive actions require e
 
 All such actions produce audit events.
 
-Until operator authentication and authorization exist, Studio may show provisioning/trust state but must remain read-only for these mutations.
+### Bootstrap operator boundary
+
+The first Debian vertical path uses a deliberately narrow bootstrap operator mechanism before richer user/RBAC support exists.
+
+- AegisPXE generates a random 256-bit bootstrap operator key under `/var/lib/aegispxe/operator.key` by default.
+- The key file is a regular file with no group/other access; symlinks and unsafe existing permissions are rejected.
+- The key value is not logged and is exchanged for a short-lived server-side session rather than stored in browser storage.
+- Session cookies are HttpOnly and SameSite=Strict. TLS sessions additionally use the Secure attribute.
+- Every browser mutation requires a CSRF value bound to the server-side session.
+- Login attempts are rate limited.
+- Operator login and mutations are refused on cleartext non-loopback network HTTP.
+- Proxy headers such as `X-Forwarded-Proto` are not trusted as transport proof in this initial contract.
+
+The bootstrap operator may perform only the explicitly exposed provisioning mutations required by the current milestone. It does not satisfy cryptographic Machine/installer trust and does not authorize release of lifecycle credentials or recovery material merely by existing.
+
+A future authenticated Studio with users, passkeys and RBAC may replace this bootstrap login while preserving the same audited domain mutation boundaries.
 
 ## Input validation
 
@@ -130,6 +145,8 @@ Path traversal and user-controlled filesystem destinations are forbidden. Intern
 Security decisions must be logged without logging secrets. See `OBSERVABILITY.md`.
 
 Authentication failures, authorization failures, invalid lifecycle events, replay attempts, assignment conflicts and artifact integrity failures require structured security logs with stable error codes.
+
+Bootstrap operator logs may contain request ID, remote address, actor after authentication, decision result and a non-secret cause class. They must never contain the bootstrap key, session cookie or CSRF value.
 
 ## Replay and sequencing
 

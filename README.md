@@ -52,13 +52,17 @@ Development now targets **Debian 13 Standard**. `0.1.0-dev.1` introduced the imm
 
 `0.1.0-dev.5` established the provisioning trust and assignment foundation. Discovery identity, operator approval, an armed Machine-to-Installation assignment and cryptographic boot trust are distinct layers. An armed assignment may make non-secret boot material eligible, but lifecycle credentials and authenticated installer APIs remain blocked until cryptographic proof exists.
 
-`0.1.0-dev.6` connects that trust model to the first real Debian boot transport. An armed `provision` Machine chains from discovery to an installation-scoped iPXE script. Kernel and initrd are served only through the verified artifact loader and only while the exact Assignment remains armed. The non-secret `preseed.cfg` is served through the same gate and iPXE injects it as `/preseed.cfg` into its magic initrd, which Debian Installer consumes as native initrd preseeding. AegisPXE therefore needs neither Debian `preseed/url` nor a custom CPIO/initrd repacker.
+`0.1.0-dev.6` connected that trust model to the first real Debian boot transport. An armed `provision` Machine chains from discovery to an installation-scoped iPXE script. Kernel and initrd are served only through the verified artifact loader and only while the exact Assignment remains armed. The non-secret `preseed.cfg` is served through the same gate and iPXE injects it as `/preseed.cfg` into its magic initrd, which Debian Installer consumes as native initrd preseeding. AegisPXE therefore needs neither Debian `preseed/url` nor a custom CPIO/initrd repacker.
 
-All dev.6 public boot reads are retryable and non-consuming. Discovery, boot-script rendering, kernel/initrd reads and Preseed reads do not emit `INSTALLER_STARTED`, consume the Assignment or release lifecycle credentials. Those operations remain behind authenticated installer telemetry and cryptographic boot trust.
+`0.1.0-dev.7` introduces the minimum authenticated operator boundary needed to prepare real provisioning without database-side shortcuts. AegisPXE creates a local 256-bit bootstrap operator key, exchanges it over an accepted secure transport for an 8-hour server-side session, requires per-session CSRF on mutations and rate-limits login attempts. Bootstrap keys, session tokens and CSRF values are excluded from logs. Cleartext non-loopback HTTP remains read-only.
 
-Studio exposes a read-only Installations area with immutable InstallationSpec details, resolved ProfileSnapshot, verified artifact provenance, target disk/security intent, assignment state and explicit trust gates. SSH public-key payloads and lifecycle credential metadata are not rendered. Administrative approve/arm/cancel controls remain unavailable until operator authentication and authorization exist.
+The authenticated wrapper already constrains Machine policy, Installation arm and Assignment cancel mutations behind the session/CSRF boundary. Public Studio does not render those controls in dev.7; the next Studio slice adds the actual operator UI and Installation creation workflow on top of this boundary.
 
-See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md), [`docs/0.1.0-artifact-verification.md`](docs/0.1.0-artifact-verification.md), [`docs/0.1.0-boot-spec.md`](docs/0.1.0-boot-spec.md), [`docs/0.1.0-debian-preseed.md`](docs/0.1.0-debian-preseed.md) and [`docs/0.1.0-trust-assignment.md`](docs/0.1.0-trust-assignment.md).
+All public boot reads remain retryable and non-consuming. Discovery, boot-script rendering, kernel/initrd reads and Preseed reads do not emit `INSTALLER_STARTED`, consume the Assignment or release lifecycle credentials. Those operations remain behind authenticated installer telemetry and cryptographic boot trust.
+
+Studio exposes a read-only Installations area with immutable InstallationSpec details, resolved ProfileSnapshot, verified artifact provenance, target disk/security intent, assignment state and explicit trust gates. SSH public-key payloads and lifecycle credential metadata are not rendered.
+
+See [`docs/0.1.0-installation-spec.md`](docs/0.1.0-installation-spec.md), [`docs/0.1.0-artifact-verification.md`](docs/0.1.0-artifact-verification.md), [`docs/0.1.0-boot-spec.md`](docs/0.1.0-boot-spec.md), [`docs/0.1.0-debian-preseed.md`](docs/0.1.0-debian-preseed.md), [`docs/0.1.0-trust-assignment.md`](docs/0.1.0-trust-assignment.md) and [`docs/0.1.0-operator-auth.md`](docs/0.1.0-operator-auth.md).
 
 ## Project constitution
 
@@ -85,4 +89,4 @@ The Project Constitution workflow verifies that foundational contracts remain pr
 
 **0.1.0: Debian 13 Standard.**
 
-The current development step is assignment-gated public Debian boot transport. The next prerequisite is the minimal authenticated operator path required to create/approve/arm real provisioning work without database-side shortcuts. Cryptographic boot trust remains the hard gate before lifecycle credentials and authenticated installer telemetry.
+The current development step is the bootstrap operator authentication boundary. The next slice brings authenticated approve/arm/cancel controls and Debian Standard InstallationSpec creation into Studio. Cryptographic boot trust remains the hard gate before lifecycle credentials and authenticated installer telemetry.

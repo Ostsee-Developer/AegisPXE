@@ -58,6 +58,11 @@ Examples:
 | `INS004_INSTALLATION_ASSIGNMENT_CONFLICT` | A Machine already has a different armed Installation assignment. |
 | `INS005_INSTALLATION_ASSIGNMENT_NOT_FOUND` | No assignment exists for the requested Installation or active Machine lookup. |
 | `SEC001_CRYPTOGRAPHIC_BOOT_TRUST_REQUIRED` | The requested secret-bearing provisioning operation requires cryptographic machine/boot proof that has not been established. |
+| `SEC002_OPERATOR_AUTHENTICATION_FAILED` | The bootstrap operator credential was absent or invalid without disclosing which part failed. |
+| `SEC003_OPERATOR_AUTH_RATE_LIMITED` | The remote exceeded the bounded bootstrap operator login-attempt window. |
+| `SEC004_OPERATOR_SESSION_REQUIRED` | An operator mutation was attempted without a valid unexpired server-side session. |
+| `SEC005_OPERATOR_CSRF_INVALID` | An authenticated browser mutation did not present the CSRF value bound to its server-side operator session. |
+| `SEC006_SECURE_OPERATOR_TRANSPORT_REQUIRED` | Operator login or mutation was attempted over an untrusted cleartext network transport. |
 | `SYS001_STORAGE_FAILURE` | The persistent store could not complete an operation safely. |
 
 The Go registry in `internal/fault` is authoritative for allocated codes. Documentation and source must change together when a new operator-visible code is introduced.
