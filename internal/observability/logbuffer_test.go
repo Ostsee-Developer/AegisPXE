@@ -41,3 +41,19 @@ func TestLogBufferSnapshotAfterSequence(t *testing.T) {
 		t.Fatalf("unexpected snapshot: %#v", after)
 	}
 }
+
+func TestLogBufferTailReturnsMostRecentEntries(t *testing.T) {
+	buffer := NewLogBuffer(4)
+	_, _ = buffer.Write([]byte("one\ntwo\nthree\nfour\nfive\n"))
+	tail := buffer.Tail(2)
+	if len(tail) != 2 || tail[0].Line != "four" || tail[1].Line != "five" {
+		t.Fatalf("unexpected tail: %#v", tail)
+	}
+	if tail[0].Sequence >= tail[1].Sequence {
+		t.Fatal("tail sequence is not monotonic")
+	}
+	all := buffer.Tail(99)
+	if len(all) != 4 || all[0].Line != "two" || all[3].Line != "five" {
+		t.Fatalf("tail did not honor ring capacity: %#v", all)
+	}
+}
