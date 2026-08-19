@@ -57,17 +57,13 @@ func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *ht
 	_, _ = fmt.Fprintln(w, "#!ipxe")
 	_, _ = fmt.Fprintf(w, "echo AegisPXE Debian 13 installation %s with TPM reporter\n", ipxeSafe(material.Spec.ID))
 	_, _ = fmt.Fprintln(w, "imgfree")
-	if material.Machine.Firmware == "efi" {
-		// Give the EFI stub one initrd object. AegisPXE concatenates the verified
-		// Debian gzip initramfs with an aligned uncompressed newc overlay. Linux
-		// natively supports this buffer format and we avoid firmware/iPXE
-		// multi-initrd handoff differences entirely.
-		_, _ = fmt.Fprintf(w, "kernel %s initrd=initrd.img%s || goto boot_failed\n", kernelURL, args)
-		_, _ = fmt.Fprintf(w, "initrd --name initrd.img %s || goto boot_failed\n", combinedInitrdURL)
-	} else {
-		_, _ = fmt.Fprintf(w, "kernel %s%s || goto boot_failed\n", kernelURL, args)
-		_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", combinedInitrdURL)
-	}
+	// Keep the firmware handoff identical to the Debian path that already
+	// worked in the real UEFI test VM: one Linux kernel, one ordinary gzip
+	// initrd and no EFI virtual-filesystem initrd naming. AegisPXE injects the
+	// reporter, non-secret config and Preseed by expanding and recompressing
+	// the verified Debian initramfs on the server.
+	_, _ = fmt.Fprintf(w, "kernel %s%s || goto boot_failed\n", kernelURL, args)
+	_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", combinedInitrdURL)
 	_, _ = fmt.Fprintln(w, "imgstat")
 	_, _ = fmt.Fprintln(w, "boot || goto boot_failed")
 	_, _ = fmt.Fprintln(w, ":boot_failed")
@@ -83,7 +79,7 @@ func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *ht
 		"assignment_id", material.Assignment.ID,
 		"driver_id", material.Spec.DriverID,
 		"driver_version", material.Spec.DriverVersion,
-		"initramfs_strategy", "single_combined_initrd",
+		"initramfs_strategy", "single_repacked_gzip_initrd",
 		"result", "success",
 		"duration_ms", time.Since(started).Milliseconds(),
 	)
@@ -145,9 +141,20 @@ func (s *Server) installationReporterCombinedInitrd(w http.ResponseWriter, r *ht
 		writeAPIError(w, http.StatusInternalServerError, fault.DriverRenderFailed, "Debian reporter overlay could not be built")
 		return
 	}
-	combined, err := initramfs.Combine(baseInitrd, overlay)
+	repacked, err := initramfs.RepackGzip(baseInitrd, overlay)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, fault.DriverRenderFailed, "combined Debian initrd could not be built")
+		s.logger.ErrorContext(r.Context(), "Debian reporter initramfs repack failed",
+			"component", "httpapi.provisioning",
+			"operation", "repack_reporter_initrd",
+			"request_id", requestID(r.Context()),
+			"machine_id", material.Machine.ID,
+			"installation_id", material.Spec.ID,
+			"assignment_id", material.Assignment.ID,
+			"error_code", fault.DriverRenderFailed,
+			"result", "failure",
+			"cause", err.Error(),
+		)
+		writeAPIError(w, http.StatusInternalServerError, fault.DriverRenderFailed, "Debian reporter initrd could not be repacked")
 		return
 	}
 
@@ -157,20 +164,20 @@ func (s *Server) installationReporterCombinedInitrd(w http.ResponseWriter, r *ht
 		if code == "" {
 			code = fault.StorageFailure
 		}
-		s.logger.ErrorContext(r.Context(), "combined initrd handoff could not be consumed", "component", "httpapi.provisioning", "operation", "consume_combined_initrd_handoff", "request_id", requestID(r.Context()), "machine_id", material.Machine.ID, "installation_id", material.Spec.ID, "assignment_id", material.Assignment.ID, "error_code", code, "result", "failure", "cause", err.Error())
+		s.logger.ErrorContext(r.Context(), "repacked initrd handoff could not be consumed", "component", "httpapi.provisioning", "operation", "consume_repacked_initrd_handoff", "request_id", requestID(r.Context()), "machine_id", material.Machine.ID, "installation_id", material.Spec.ID, "assignment_id", material.Assignment.ID, "error_code", code, "result", "failure", "cause", err.Error())
 		writeAPIError(w, http.StatusConflict, code, "installation boot handoff could not be committed")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.Itoa(len(combined)))
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Length", strconv.Itoa(len(repacked)))
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(combined); err != nil {
-		s.logger.WarnContext(r.Context(), "combined initrd response write failed after one-shot handoff consumption", "component", "httpapi.provisioning", "operation", "serve_reporter_combined_initrd", "request_id", requestID(r.Context()), "machine_id", material.Machine.ID, "installation_id", material.Spec.ID, "assignment_id", consumed.ID, "error_code", fault.DriverRenderFailed, "result", "response_write_failed", "duration_ms", time.Since(started).Milliseconds())
+	if _, err := w.Write(repacked); err != nil {
+		s.logger.WarnContext(r.Context(), "repacked initrd response write failed after one-shot handoff consumption", "component", "httpapi.provisioning", "operation", "serve_reporter_combined_initrd", "request_id", requestID(r.Context()), "machine_id", material.Machine.ID, "installation_id", material.Spec.ID, "assignment_id", consumed.ID, "error_code", fault.DriverRenderFailed, "result", "response_write_failed", "duration_ms", time.Since(started).Milliseconds())
 		return
 	}
-	s.logger.InfoContext(r.Context(), "one-shot assignment handoff committed and combined reporter initrd served",
+	s.logger.InfoContext(r.Context(), "one-shot assignment handoff committed and repacked reporter initrd served",
 		"component", "httpapi.provisioning",
 		"operation", "serve_reporter_combined_initrd",
 		"request_id", requestID(r.Context()),
@@ -180,7 +187,7 @@ func (s *Server) installationReporterCombinedInitrd(w http.ResponseWriter, r *ht
 		"assignment_state", consumed.State,
 		"base_initrd_bytes", len(baseInitrd),
 		"overlay_bytes", len(overlay),
-		"combined_initrd_bytes", len(combined),
+		"repacked_initrd_bytes", len(repacked),
 		"reporter_bytes", len(reporter),
 		"seed_bytes", len(bundle.Content),
 		"result", "success",
