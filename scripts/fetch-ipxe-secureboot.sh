@@ -75,6 +75,7 @@ fi
 python3 - "$work/$ASSET" "$work/extracted" <<'PY'
 import os
 import pathlib
+import posixpath
 import shutil
 import sys
 import tarfile
@@ -85,16 +86,51 @@ required = {
     "ipxe.efi": "/x86_64-sb/ipxe.efi",
 }
 os.makedirs(output_path, mode=0o700, exist_ok=True)
+
+
+def safe_name(value: str) -> bool:
+    path = pathlib.PurePosixPath(value)
+    return not path.is_absolute() and ".." not in path.parts
+
+
 with tarfile.open(archive_path, "r:gz") as archive:
     members = archive.getmembers()
+    by_name = {member.name: member for member in members}
+
+    def content_member(member):
+        if member.isfile():
+            return member
+        if member.issym():
+            raise SystemExit(f"refusing symlink iPXE archive member: {member.name}")
+        if not member.islnk() or not safe_name(member.linkname):
+            raise SystemExit(f"unsupported iPXE archive member type: {member.name}")
+
+        # The official bundle may deduplicate identical signed shim binaries
+        # with an in-archive hardlink. Resolve it only to another regular
+        # member inside the archive and copy bytes out as a new regular file.
+        candidates = [member.linkname]
+        candidates.append(posixpath.normpath(posixpath.join(posixpath.dirname(member.name), member.linkname)))
+        target = None
+        for candidate in candidates:
+            resolved = by_name.get(candidate)
+            if resolved is not None:
+                target = resolved
+                break
+        if target is None or not target.isfile() or target.issym() or target.islnk():
+            raise SystemExit(f"unsafe hardlink target for iPXE archive member: {member.name}")
+        return target
+
     for target_name, suffix in required.items():
         matches = [member for member in members if ("/" + member.name.lstrip("/")).endswith(suffix)]
         if len(matches) != 1:
             raise SystemExit(f"archive does not contain exactly one {suffix}")
         member = matches[0]
-        if not member.isfile() or member.issym() or member.islnk() or member.size <= 0 or member.size > 32 * 1024 * 1024:
-            raise SystemExit(f"unsafe iPXE archive member: {member.name}")
-        source = archive.extractfile(member)
+        if not safe_name(member.name):
+            raise SystemExit(f"unsafe iPXE archive member path: {member.name}")
+        source_member = content_member(member)
+        if source_member.size <= 0 or source_member.size > 32 * 1024 * 1024:
+            raise SystemExit(f"iPXE archive member size is outside accepted bounds: {member.name}")
+        source = archive.extractfile(source_member)
         if source is None:
             raise SystemExit(f"could not read iPXE archive member: {member.name}")
         target = pathlib.Path(output_path) / target_name
