@@ -4,13 +4,15 @@ AegisPXE provisions privileged systems over a network. Security properties there
 
 ## Current implementation status
 
-The `0.1.0-dev.21` stabilization line intentionally separates **implemented security primitives** from **E2E-proven production paths**.
+The `0.1.0-dev.22` line builds Secure Boot as a separately gated security property on top of the dev.21 E2E-proven Debian installer transport.
 
-- Debian 13 provisioning uses the last real-VM-proven kernel + Debian initrd + Preseed boot contract.
-- The TPM boot-trust, signed reporter telemetry, credential-release and reporter source code remain available for isolated tests and further design work.
-- The failed reporter/initramfs injection experiments from dev.14 through dev.20 are not registered in the production boot handler and the reporter binary is not shipped in the production `.deb`.
-- No runtime reporter path is considered production-ready until a redesigned delivery mechanism passes the real UEFI/vTPM E2E gate.
-- Secure Boot is not yet an implemented or claimed property of the 0.1.0 Debian provisioning path.
+- Debian 13 provisioning keeps the real-VM-proven kernel + native Debian initrd + Preseed transport.
+- New Debian driver-v2 InstallationSpecs additionally pin Debian `bootnetx64.efi` through the same signed Debian release/checksum chain as kernel and initrd.
+- The package builds from the official iPXE v2.0.0 Secure Boot bundle, pins the release tag to its exact upstream commit, validates the GitHub release-asset SHA-256/size, requires PE signature tables and records per-file hashes in a package manifest.
+- With `AEGISPXE_SECURE_BOOT_POLICY=required`, the server fails startup when package-owned signed iPXE assets do not match that manifest and refuses destructive provisioning unless the Machine is observed with UEFI Secure Boot enabled and SetupMode disabled.
+- The actual firmware signature checks plus the signed iPXE and Debian shim/kernel chain are the executable trust boundary. The iPXE `SecureBoot`/`SetupMode` values are policy observations, not cryptographic remote attestation.
+- Secure Boot remains a release/E2E gate until the real OVMF fixture passes both positive and negative tests. Source tests alone do not authorize a Secure Boot claim.
+- TPM boot-trust, signed reporter telemetry, credential-release and reporter source remain available for isolated testing, but reporter delivery is still outside the production Debian installer path.
 
 AegisPXE must not advertise a trust, telemetry or Secure Boot property merely because its underlying primitives compile or pass unit tests.
 
@@ -18,7 +20,8 @@ AegisPXE must not advertise a trust, telemetry or Secure Boot property merely be
 
 Primary boundaries:
 
-- firmware/PXE client to AegisPXE boot service,
+- UEFI firmware to the signed PXE first stage,
+- PXE client to AegisPXE boot service,
 - installer/reporter to AegisPXE API,
 - browser administrator to AegisPXE Studio,
 - trusted reverse proxy/SSO to the Studio listener,
@@ -34,11 +37,12 @@ Provisioning trust is layered and must not collapse identification, authorizatio
 1. **Discovery identity** resolves observations such as MAC/SMBIOS UUID to a Machine record. It provides no secret-bearing authority.
 2. **Operator approval** is represented by explicit provisioning intent for that Machine. It authorizes scheduling but does not authenticate a later network client.
 3. **Armed assignment** binds one Machine to one immutable InstallationSpec. At most one assignment may be armed for a Machine at a time.
-4. **Cryptographic boot trust** is the separate proof required before secret release. Its TPM-bound primitives exist, but their Debian runtime delivery remains suspended until E2E-proven.
+4. **Secure Boot enforcement** may independently gate destructive boot material. Under required policy, firmware must be UEFI and the observed Secure Boot state must be enabled; the InstallationSpec must use the Secure-Boot-capable driver contract.
+5. **Cryptographic boot trust** is the separate proof required before future secret release. Its TPM-bound primitives exist, but their Debian runtime delivery remains suspended until E2E-proven.
 
-Operator approval plus an armed assignment may authorize delivery of non-secret public boot material. Secret-bearing operations must never be authorized solely from discovery identifiers.
+Operator approval plus an armed assignment may authorize delivery of non-secret public boot material only after every configured platform gate also passes. Secret-bearing operations must never be authorized solely from discovery identifiers or a Secure Boot observation.
 
-See `docs/adr/0003-provisioning-trust-model.md` and `docs/adr/0007-tpm-bound-reporter-trust.md`.
+See `docs/adr/0003-provisioning-trust-model.md`, `docs/adr/0007-tpm-bound-reporter-trust.md` and `docs/adr/0009-secure-boot-chain.md`.
 
 ## Human authentication and authorization
 
@@ -72,22 +76,52 @@ See `docs/adr/0004-studio-trusted-proxy.md` and `docs/adr/0008-layered-human-aut
 
 ## Debian 13 boot and seed security
 
-The production Debian 13 boot transport is intentionally simple and currently proven by the earlier real-VM installation path:
+The Debian 13 installer transport remains intentionally simple:
 
 ```text
 verified Debian kernel
-verified Debian initrd.gz
+verified native Debian initrd.gz
 installation-scoped preseed.cfg injected as /preseed.cfg by iPXE
+Debian bootnetx64.efi configured as the Secure Boot shim verifier
 boot
 ```
 
+The shim is an additional signed artifact and verifier configuration. AegisPXE does not repack, append to or inject runtime binaries into the Debian initrd.
+
 The rendered Preseed contains desired-state configuration and SSH public keys but no lifecycle credential, reusable administrator password, private key or recovery key.
 
-Reporter binaries, reporter configuration, custom newc overlays, multi-initrd EFI handoffs and server-side repacked initramfs images are not part of the stabilized production boot path in dev.21.
+Reporter binaries, reporter configuration, custom newc overlays, multi-initrd EFI handoffs and server-side repacked initramfs images are not part of the stabilized production boot path.
 
 The Preseed is the final network object in the destructive public handoff. Immediately before returning the rendered Preseed, AegisPXE atomically consumes the armed assignment. This prevents automatic re-entry into the same destructive installation on the next PXE boot.
 
 Consumption is scheduling state only. It does not mean `INSTALLER_STARTED`, successful installation, validation or cryptographic trust.
+
+## Secure Boot chain
+
+The intended x86-64 UEFI chain is:
+
+```text
+UEFI Secure Boot firmware
+  -> official iPXE v2.0.0 ipxe-shim.efi
+  -> official signed iPXE v2.0.0 ipxe.efi
+  -> AegisPXE discovery/policy decision
+  -> verified Debian kernel + native initrd + Preseed
+  -> Debian bootnetx64.efi configured through iPXE shim command
+  -> Debian Installer
+  -> installed Debian shim/grub/kernel on local reboot
+```
+
+The package build pins official iPXE release `v2.0.0` to upstream commit `12798ec29aa8a64d8675c4378b99f5fe28447afb`. The build rejects unexpected release metadata, missing GitHub SHA-256 metadata, size/digest mismatch, unsafe archive members or missing PE signature tables. Only the two expected x86-64 Secure Boot EFI files are extracted.
+
+A package manifest records the release, upstream commit, release-asset SHA-256 and the exact SHA-256/size of `ipxe-shim.efi` and `ipxe.efi`. Runtime startup independently verifies those package-owned files as regular non-symlink files against the manifest. Under `required` policy, validation failure is fatal and logs `SEC025_SECURE_BOOT_ASSETS_INVALID`.
+
+The package materializes the signed chain into the configured TFTP root as `ipxe-shim.efi` and `ipxe.efi`. UEFI Secure Boot DHCP configuration must hand the client `ipxe-shim.efi`; serving the second-stage `ipxe.efi` directly is not the supported Secure Boot entry path.
+
+Machine discovery records `efi/SecureBoot` and `efi/SetupMode` as one of `enabled`, `disabled`, `setup_mode`, `unknown` or `unsupported`. Malformed evidence is rejected with `SEC024_SECURE_BOOT_EVIDENCE_INVALID`. Required-policy provisioning with anything other than `enabled` is denied with `SEC023_SECURE_BOOT_REQUIRED`.
+
+Those variables are not remote attestation. A hostile client able to execute outside the intended signed chain could lie about ordinary discovery fields. The supported security claim therefore depends on actual UEFI signature enforcement and the signed first-stage chain, not on trusting the query value in isolation. TPM/PCR attestation remains separate future work.
+
+No code path may silently disable Secure Boot or downgrade to an unsigned boot path while reporting success.
 
 ## Assignment safety
 
@@ -131,9 +165,9 @@ Provisioning artifacts are identified by cryptographic digest and provenance met
 
 A hash mismatch is a hard failure. Existing bytes with the wrong digest must never be reused silently.
 
-The Debian artifact resolver constrains expected origin/path/provenance and verifies downloaded artifact content against the pinned digest.
+The Debian artifact resolver constrains expected origin/path/provenance and verifies downloaded artifact content against Debian signed `InRelease` metadata and the pinned installer checksum manifest. Driver v2 requires kernel, initrd and Debian `bootnetx64.efi` to share one verified installer version and provenance.
 
-Upstream signature/checksum verification is used where the driver resolver defines it. Trust verification failures are fail-closed and use stable error codes.
+Upstream signature/checksum verification failures are fail-closed and use stable error codes.
 
 ## Secret handling
 
@@ -179,6 +213,8 @@ The last non-blocked administrator cannot be blocked through the Store contract.
 
 External identifiers, URLs, filenames, paths, hostnames, MAC addresses, driver IDs, profile values, nicknames, TPM public keys, signatures, timestamps, idempotency keys and telemetry bodies are validated at domain boundaries.
 
+UEFI Secure Boot state values are normalized from one-byte firmware settings and malformed values fail closed instead of being coerced to disabled/enabled.
+
 Machine nicknames are trimmed, bounded to 80 Unicode code points and reject control characters.
 
 Path traversal and user-controlled filesystem destinations are forbidden. Internal paths should be constructed from typed IDs and fixed roots.
@@ -189,7 +225,9 @@ Request bodies are bounded before parsing on security-sensitive endpoints.
 
 Security decisions must be logged without logging secrets. See `OBSERVABILITY.md`.
 
-Authentication failures, authorization failures, invalid lifecycle events, replay attempts, assignment conflicts, deletion conflicts, boot-trust failures and artifact-integrity failures require structured logs with stable error codes and correlation IDs.
+Authentication failures, authorization failures, invalid lifecycle events, replay attempts, assignment conflicts, deletion conflicts, boot-trust failures, artifact-integrity failures and Secure Boot decisions require structured logs with stable error codes and correlation IDs.
+
+Secure Boot startup logs include the active policy, pinned upstream release/commit and cryptographic hashes of package-owned signed assets. Machine discovery and provisioning decisions include the normalized Secure Boot state and policy. Failure logs record stable SEC023-025 codes without embedding binary material.
 
 The Studio live-log view reads only the already-redacted bounded in-memory log ring. The NDJSON export serves the same redacted stream with an explicit attachment filename and `nosniff` response policy.
 
@@ -203,23 +241,18 @@ Reporter telemetry authentication includes request freshness. Boot-trust challen
 
 Exact retry behavior must never create a new lifecycle transition or a second raw credential.
 
-## Secure Boot
-
-Secure Boot is a separate release gate. The current production package must not claim that the PXE chain, iPXE binary, Debian kernel or any future reporter delivery path is Secure Boot verified until the complete signed chain is implemented and tested on real UEFI Secure Boot firmware.
-
-No code path may silently disable Secure Boot or downgrade to an unsigned boot path while reporting success.
-
 ## Secure defaults
 
 Defaults favor:
 
+- UEFI Secure Boot required for destructive provisioning,
 - SSH keys over passwords,
 - root login disabled,
 - minimum necessary exposed listener surfaces,
 - verified artifacts,
 - explicit operator approval for destructive provisioning,
 - explicit TPM key approval over first-contact auto-trust,
-- local boot when there is no armed assignment,
+- local boot when there is no armed assignment or platform security gate fails,
 - refusal rather than guessing when state is inconsistent,
 - removal of unproven runtime components from production packaging.
 
