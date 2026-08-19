@@ -84,12 +84,15 @@ func TestValidateSpecRejectsMissingSecureBootShimInV2(t *testing.T) {
 	}
 }
 
-func TestValidateSpecKeepsLegacyV1Readable(t *testing.T) {
+func TestValidateSpecKeepsLegacyV1ReadableButNotBootRenderable(t *testing.T) {
 	spec := validInstallationSpec()
 	spec.DriverVersion = LegacyDriverVersion
 	spec.Artifacts = spec.Artifacts[:2]
 	if err := ValidateSpec(spec); err != nil {
 		t.Fatalf("legacy driver-v1 InstallationSpec should remain readable: %v", err)
+	}
+	if _, err := RenderBoot(spec); err == nil {
+		t.Fatal("legacy driver-v1 InstallationSpec was silently re-rendered as a current boot contract")
 	}
 }
 
