@@ -283,6 +283,10 @@ func (s *Server) writeMachineReadError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) writeIPXE(w http.ResponseWriter, message, reason string) {
+	if localBootReason(reason) {
+		s.writeLocalBootIPXE(w, message, reason)
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = fmt.Fprintf(w, "#!ipxe\n")
