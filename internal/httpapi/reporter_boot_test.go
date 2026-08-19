@@ -12,7 +12,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/assignment"
 )
 
-func TestReporterBootScriptUsesNativeOverlayAsFinalNetworkObject(t *testing.T) {
+func TestReporterBootScriptUsesExplicitNamedInitrdsAsFinalNetworkObject(t *testing.T) {
 	state, _ := testServer(t)
 	machineRecord, spec := createArmedProvisioningState(t, state, "52:54:00:40:00:72")
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -25,13 +25,16 @@ func TestReporterBootScriptUsesNativeOverlayAsFinalNetworkObject(t *testing.T) {
 		t.Fatalf("reporter boot script status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	kernelLine := "kernel http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/linux initrd=initrd.magic"
-	baseInitrdLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/initrd.gz"
-	overlayLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/overlay.cpio"
-	for _, want := range []string{kernelLine, baseInitrdLine, overlayLine} {
+	kernelLine := "kernel http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/linux initrd=initrd.gz initrd=overlay.cpio"
+	baseInitrdLine := "initrd --name initrd.gz http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/initrd.gz"
+	overlayLine := "initrd --name overlay.cpio http://aegispxe.test/boot/installations/" + spec.ID + "/overlay.cpio"
+	for _, want := range []string{kernelLine, baseInitrdLine, overlayLine, "imgstat"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("reporter boot script missing %q: %s", want, body)
 		}
+	}
+	if strings.Contains(body, "initrd=initrd.magic") {
+		t.Fatalf("UEFI boot script still depends on initrd.magic aggregation: %s", body)
 	}
 	if strings.Contains(body, "/aegispxe/reporter mode=") || strings.Contains(body, "/reporter.json /aegispxe/") || strings.Contains(body, "/preseed.cfg /preseed.cfg") {
 		t.Fatalf("boot script still depends on iPXE per-file magic-initrd injection: %s", body)
