@@ -4,13 +4,15 @@ import "net/http"
 
 func (h *DashboardHandler) dashboardRCStyle(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
 	_, _ = w.Write([]byte(dashboardCSS + dashboardRCTheme))
 }
 
 func (h *DashboardHandler) dashboardRCScript(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
 	_, _ = w.Write([]byte(dashboardJS + dashboardRCJS))
 }
 
@@ -38,7 +40,7 @@ const dashboardRCTheme = `
   --radius-sm:10px;
 }
 html,body{background:var(--bg);color:var(--text)}
-body{font-size:14px}
+body{font-size:14px;-webkit-font-smoothing:antialiased}
 a:hover{color:var(--accent-strong)}
 .topbar,.sidebar,.bottom-nav{background:rgba(16,21,27,.96);border-color:var(--border)}
 .sidebar{box-shadow:10px 0 34px rgba(0,0,0,.08)}
@@ -50,6 +52,7 @@ a:hover{color:var(--accent-strong)}
 .sidebar nav a.active{background:var(--accent-soft);color:var(--accent-strong);box-shadow:inset 3px 0 0 var(--accent)}
 .sidebar-foot{border-color:var(--border)}
 .content{width:min(100%,1500px)}
+.page-head{margin-bottom:20px;padding:2px 2px 18px;border-bottom:1px solid var(--border)}
 .eyebrow{color:var(--accent-strong)}
 .muted,.card-subtitle,.log-status{color:var(--muted)}
 .card,.stat,.form-section,.notice,.empty,.panel,.trust-card{background:var(--surface);border-color:var(--border);box-shadow:var(--shadow)}
@@ -116,8 +119,14 @@ label{color:#c4cdd5}
 .trust-card.attention strong{color:var(--warn)}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}.chips span{padding:4px 7px;border:1px solid var(--border);border-radius:999px;background:#111820;color:#aebbc5;font-size:10px}
 .artifact-list{display:grid;gap:8px;margin-top:8px}.artifact{padding:10px;border:1px solid var(--border);border-radius:9px;background:#111820}.artifact strong,.artifact small,.artifact code{display:block}.artifact small{color:var(--muted);font-size:10px}.artifact code{margin-top:4px;color:#9fb9b5;font-size:10px;overflow-wrap:anywhere}
-.overview-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(330px,.7fr);gap:14px}
+.overview-grid{display:grid;grid-template-columns:1fr;gap:14px}
+.overview-grid>.panel:nth-child(2){display:none}
 .desktop-only{display:block}.mobile-only{display:none}
+.machine-log-panel{margin-top:14px}
+.machine-log-toolbar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:#131a21}
+.machine-log-toolbar input{flex:1;min-width:160px;max-width:520px;min-height:34px;padding:6px 10px;font:12px/1.4 "SFMono-Regular",Consolas,"Liberation Mono",monospace}
+.machine-log-view{height:330px;border:0;border-radius:0;box-shadow:none}
+.machine-log-empty{padding:18px;color:var(--muted);font-size:12px}
 
 @media (min-width:960px){
   .app{grid-template-columns:248px minmax(0,1fr)}
@@ -128,7 +137,6 @@ label{color:#c4cdd5}
 }
 @media (max-width:1199px){
   .trust-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .overview-grid{grid-template-columns:1fr}
 }
 @media (max-width:959px){
   .desktop-only{display:none}.mobile-only{display:grid}
@@ -139,15 +147,14 @@ label{color:#c4cdd5}
 @media (max-width:639px){
   .trust-grid{grid-template-columns:1fr 1fr}
   .event-top{display:block}.event-top time{display:block;margin-top:2px}
+  .machine-log-toolbar{align-items:stretch;flex-direction:column}
+  .machine-log-toolbar input{max-width:none;width:100%}
 }
 `
 
 const dashboardRCJS = `
 (() => {
   "use strict";
-  const filter = document.querySelector("[data-log-filter]");
-  const view = document.querySelector("[data-live-logs]");
-  if (!filter || !view) return;
 
   const decorateLine = entry => {
     const line = document.createElement("div");
@@ -162,26 +169,128 @@ const dashboardRCJS = `
     return line;
   };
 
-  const applyFilter = () => {
-    const needle = filter.value.trim().toLowerCase();
-    view.querySelectorAll(".log-line").forEach(line => {
+  const filter = document.querySelector("[data-log-filter]");
+  const view = document.querySelector("[data-live-logs]");
+  if (filter && view) {
+    const applyFilter = () => {
+      const needle = filter.value.trim().toLowerCase();
+      view.querySelectorAll(".log-line").forEach(line => {
+        line.hidden = needle !== "" && !line.textContent.toLowerCase().includes(needle);
+      });
+    };
+
+    filter.addEventListener("input", applyFilter);
+    new MutationObserver(applyFilter).observe(view, {childList: true});
+
+    const anchor = Number(view.dataset.after || "0");
+    fetch("/ui/api/logs/tail?before=" + encodeURIComponent(anchor), {credentials:"same-origin", headers:{"Accept":"application/json"}})
+      .then(response => response.ok ? response.json() : Promise.reject(new Error("tail unavailable")))
+      .then(payload => {
+        const fragment = document.createDocumentFragment();
+        (payload.entries || []).forEach(entry => fragment.appendChild(decorateLine(entry)));
+        view.prepend(fragment);
+        applyFilter();
+        view.scrollTop = view.scrollHeight;
+      })
+      .catch(() => {});
+  }
+
+  const machineHeading = document.querySelector(".detail-panel .panel-head h2.mono");
+  const detailGrid = machineHeading && machineHeading.closest(".detail-grid");
+  if (!machineHeading || !detailGrid) return;
+
+  const machineID = machineHeading.textContent.trim();
+  if (!machineID) return;
+
+  const panel = document.createElement("section");
+  panel.className = "panel machine-log-panel";
+
+  const head = document.createElement("div");
+  head.className = "panel-head";
+  const headCopy = document.createElement("div");
+  const title = document.createElement("h2");
+  title.textContent = "Machine logs";
+  const subtitle = document.createElement("p");
+  subtitle.textContent = "Recent redacted server logs correlated to this machine.";
+  headCopy.append(title, subtitle);
+  const status = document.createElement("span");
+  status.className = "count";
+  status.textContent = "Loading";
+  head.append(headCopy, status);
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "machine-log-toolbar";
+  const machineFilter = document.createElement("input");
+  machineFilter.type = "search";
+  machineFilter.placeholder = "Filter machine logs…";
+  machineFilter.setAttribute("aria-label", "Filter machine logs");
+  toolbar.append(machineFilter);
+
+  const logBox = document.createElement("div");
+  logBox.className = "log-view machine-log-view";
+  const empty = document.createElement("div");
+  empty.className = "machine-log-empty";
+  empty.textContent = "No recent structured log entries for this machine.";
+  logBox.append(empty);
+
+  panel.append(head, toolbar, logBox);
+  detailGrid.insertAdjacentElement("afterend", panel);
+
+  let after = 0;
+  const matchesMachine = entry => {
+    try {
+      const parsed = JSON.parse(entry.line);
+      return String(parsed.machine_id || "") === machineID;
+    } catch (_) {
+      return String(entry.line || "").includes(machineID);
+    }
+  };
+
+  const applyMachineFilter = () => {
+    const needle = machineFilter.value.trim().toLowerCase();
+    logBox.querySelectorAll(".log-line").forEach(line => {
       line.hidden = needle !== "" && !line.textContent.toLowerCase().includes(needle);
     });
   };
 
-  filter.addEventListener("input", applyFilter);
-  new MutationObserver(applyFilter).observe(view, {childList: true});
+  const appendMachineEntry = entry => {
+    after = Math.max(after, Number(entry.sequence || 0));
+    if (!matchesMachine(entry)) return;
+    if (empty.isConnected) empty.remove();
+    logBox.appendChild(decorateLine(entry));
+    while (logBox.querySelectorAll(".log-line").length > 250) {
+      const first = logBox.querySelector(".log-line");
+      if (first) first.remove();
+    }
+    applyMachineFilter();
+    logBox.scrollTop = logBox.scrollHeight;
+  };
 
-  const anchor = Number(view.dataset.after || "0");
-  fetch("/ui/api/logs/tail?before=" + encodeURIComponent(anchor), {credentials:"same-origin", headers:{"Accept":"application/json"}})
+  machineFilter.addEventListener("input", applyMachineFilter);
+
+  const pollMachineLogs = async () => {
+    try {
+      const response = await fetch("/ui/api/logs?after=" + encodeURIComponent(after), {credentials:"same-origin", headers:{"Accept":"application/json"}});
+      if (!response.ok) throw new Error("log feed unavailable");
+      const payload = await response.json();
+      (payload.entries || []).forEach(appendMachineEntry);
+      status.textContent = "Live";
+    } catch (_) {
+      status.textContent = "Disconnected";
+    }
+    setTimeout(pollMachineLogs, 2000);
+  };
+
+  fetch("/ui/api/logs/tail", {credentials:"same-origin", headers:{"Accept":"application/json"}})
     .then(response => response.ok ? response.json() : Promise.reject(new Error("tail unavailable")))
     .then(payload => {
-      const fragment = document.createDocumentFragment();
-      (payload.entries || []).forEach(entry => fragment.appendChild(decorateLine(entry)));
-      view.prepend(fragment);
-      applyFilter();
-      view.scrollTop = view.scrollHeight;
+      (payload.entries || []).forEach(appendMachineEntry);
+      status.textContent = "Live";
+      pollMachineLogs();
     })
-    .catch(() => {});
+    .catch(() => {
+      status.textContent = "Disconnected";
+      pollMachineLogs();
+    });
 })();
 `
