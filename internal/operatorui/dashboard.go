@@ -58,7 +58,7 @@ func NewDashboardWithTrustedProxy(next http.Handler, state *store.Store, auth *o
 
 func (h *DashboardHandler) registerDashboardRoutes() {
 	h.mux.HandleFunc("GET /ui/{$}", h.dashboardEntry)
-	h.mux.HandleFunc("GET /ui/assets/dashboard.css", h.dashboardRCStyle)
+	h.mux.HandleFunc("GET /ui/assets/dashboard.css", h.dashboardStableStyle)
 	h.mux.HandleFunc("GET /ui/assets/dashboard.js", h.dashboardStableScript)
 
 	h.mux.HandleFunc("POST /ui/auth/bootstrap", h.bootstrapInitialAdmin)
@@ -96,9 +96,9 @@ func (h *DashboardHandler) registerDashboardRoutes() {
 	h.mux.HandleFunc("POST /ui/users/{id}/block", h.dashboardBlockUser)
 
 	h.mux.HandleFunc("GET /ui/logs", h.dashboardLogs)
-	h.mux.HandleFunc("GET /ui/api/logs", h.dashboardLogFeed)
+	h.mux.HandleFunc("GET /ui/api/logs", h.dashboardStableLogFeed)
 	h.mux.HandleFunc("GET /ui/api/logs/tail", h.dashboardLogTail)
-	h.mux.HandleFunc("GET /ui/logs/export", h.dashboardLogExport)
+	h.mux.HandleFunc("GET /ui/logs/export", h.dashboardStableLogExport)
 
 	// Old dev.4/dev.8 routes intentionally collapse into the single dashboard.
 	h.mux.HandleFunc("GET /ui/operator/{$}", func(w http.ResponseWriter, r *http.Request) {
