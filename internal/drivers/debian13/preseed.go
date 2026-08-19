@@ -66,8 +66,6 @@ func renderPreseed(spec installation.Spec) (driver.SeedBundle, error) {
 		"d-i clock-setup/utc boolean true",
 		"d-i time/zone string " + spec.Profile.Timezone,
 		"d-i clock-setup/ntp boolean true",
-		"d-i preseed/early_command string chmod 0755 /aegispxe/reporter; /aegispxe/reporter daemon --config /aegispxe/reporter.json >/var/log/aegispxe-reporter.log 2>&1 & /aegispxe/reporter event --message 'Debian Installer started' INSTALLER_STARTED",
-		"d-i partman/early_command string /aegispxe/reporter event --message 'Debian partitioner started' DISK_PREPARATION",
 		"d-i partman-auto/disk string " + spec.Storage.TargetDisk,
 		"d-i partman-auto/method string regular",
 		"d-i partman-auto/choose_recipe select atomic",
@@ -150,8 +148,6 @@ func renderLateCommand(spec installation.Spec) (string, error) {
 	authorizedKeysPath := "/target/home/" + username + "/.ssh/authorized_keys"
 	commands := []string{
 		"set -e",
-		`trap "/aegispxe/reporter event --message hardening_failed --error-code INS104_HARDENING_FAILED FAILED" EXIT`,
-		"/aegispxe/reporter event --message 'AegisPXE hardening started' HARDENING",
 		"install -d -m 0755 /target/var/log",
 		marker("late_command", "started"),
 		marker("authorized_keys", "started"),
@@ -195,11 +191,7 @@ func renderLateCommand(spec installation.Spec) (string, error) {
 		appendLine("/target/etc/apt/apt.conf.d/20auto-upgrades", "APT::Periodic::Unattended-Upgrade \"1\";"),
 		"chmod 0644 /target/etc/apt/apt.conf.d/20auto-upgrades",
 		marker("automatic_updates", "success"),
-		marker("firstboot_finalizer", "started"),
-		"/aegispxe/reporter install-firstboot --config /aegispxe/reporter.json /target",
-		marker("firstboot_finalizer", "success"),
 		marker("late_command", "success"),
-		"trap - EXIT",
 	)
 	return strings.Join(commands, "; "), nil
 }
