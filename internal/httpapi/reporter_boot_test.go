@@ -12,7 +12,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/assignment"
 )
 
-func TestReporterBootScriptInjectsReporterBeforeFinalPreseedWithoutSecrets(t *testing.T) {
+func TestReporterBootScriptUsesNativeOverlayAsFinalNetworkObject(t *testing.T) {
 	state, _ := testServer(t)
 	machineRecord, spec := createArmedProvisioningState(t, state, "52:54:00:40:00:72")
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -25,16 +25,19 @@ func TestReporterBootScriptInjectsReporterBeforeFinalPreseedWithoutSecrets(t *te
 		t.Fatalf("reporter boot script status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	reporterLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/reporter /aegispxe/reporter mode=755 mkdir=1"
-	configLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/reporter.json /aegispxe/reporter.json mkdir=1"
-	preseedLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/preseed.cfg /preseed.cfg"
-	for _, want := range []string{reporterLine, configLine, preseedLine} {
+	kernelLine := "kernel http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/linux initrd=initrd.magic"
+	baseInitrdLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/initrd.gz"
+	overlayLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/overlay.cpio"
+	for _, want := range []string{kernelLine, baseInitrdLine, overlayLine} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("reporter boot script missing %q: %s", want, body)
 		}
 	}
-	if !(strings.Index(body, reporterLine) < strings.Index(body, configLine) && strings.Index(body, configLine) < strings.Index(body, preseedLine)) {
-		t.Fatalf("Preseed must remain the final injected network object: %s", body)
+	if strings.Contains(body, "/aegispxe/reporter mode=") || strings.Contains(body, "/reporter.json /aegispxe/") || strings.Contains(body, "/preseed.cfg /preseed.cfg") {
+		t.Fatalf("boot script still depends on iPXE per-file magic-initrd injection: %s", body)
+	}
+	if strings.Index(body, baseInitrdLine) > strings.Index(body, overlayLine) {
+		t.Fatalf("native Debian initrd must load before final overlay: %s", body)
 	}
 	if strings.Contains(body, spec.LifecycleCredentialID) || strings.Contains(strings.ToLower(body), "authorization") || strings.Contains(strings.ToLower(body), "token=") {
 		t.Fatal("reporter-enabled boot script leaked lifecycle authentication material")
