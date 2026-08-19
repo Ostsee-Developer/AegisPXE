@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -99,6 +100,57 @@ func TestRenderSeedLateHookFailsClosedWithoutComplexExitTrap(t *testing.T) {
 			t.Fatalf("late hook contains fragile or failure-masking shell construct %q", forbidden)
 		}
 	}
+}
+
+func TestRenderSeedLateHookHasNoDebconfEscapeSequences(t *testing.T) {
+	spec := validInstallationSpec()
+	var logs bytes.Buffer
+	logger := observability.New(&logs, slog.LevelDebug)
+
+	seed, err := RenderSeed(context.Background(), logger, spec, "req_late_hook_escape_safety")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lateCommand := extractLateCommand(t, string(seed.Content))
+	if strings.ContainsAny(lateCommand, "\\\r\n") {
+		t.Fatalf("late command contains an escape or line break that debconf can reinterpret: %q", lateCommand)
+	}
+	for _, want := range []string{
+		"echo 'component=aegispxe step=late_command result=started'",
+		": > '/target/home/guardian/.ssh/authorized_keys'",
+		"echo 'PasswordAuthentication no' > '/target/etc/ssh/sshd_config.d/90-aegispxe.conf'",
+		"echo 'APT::Periodic::Unattended-Upgrade \"1\";' >> '/target/etc/apt/apt.conf.d/20auto-upgrades'",
+	} {
+		if !strings.Contains(lateCommand, want) {
+			t.Fatalf("late command missing preseed-safe fragment %q", want)
+		}
+	}
+}
+
+func TestRenderSeedLateHookIsValidPOSIXShell(t *testing.T) {
+	spec := validInstallationSpec()
+	var logs bytes.Buffer
+	logger := observability.New(&logs, slog.LevelDebug)
+	seed, err := RenderSeed(context.Background(), logger, spec, "req_late_hook_shell_syntax")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lateCommand := extractLateCommand(t, string(seed.Content))
+	if output, err := exec.Command("sh", "-n", "-c", lateCommand).CombinedOutput(); err != nil {
+		t.Fatalf("late command is not valid shell syntax: %v\n%s\n%s", err, output, lateCommand)
+	}
+}
+
+func extractLateCommand(t *testing.T, content string) string {
+	t.Helper()
+	const prefix = "d-i preseed/late_command string "
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix)
+		}
+	}
+	t.Fatal("preseed late command is missing")
+	return ""
 }
 
 func TestRenderSeedLogsCorrelationWithoutSeedOrKeyMaterial(t *testing.T) {

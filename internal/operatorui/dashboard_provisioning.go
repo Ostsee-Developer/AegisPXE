@@ -7,13 +7,17 @@ import (
 
 	"github.com/Ostsee-Developer/AegisPXE/internal/assignment"
 	"github.com/Ostsee-Developer/AegisPXE/internal/drivers/debian13"
+	"github.com/Ostsee-Developer/AegisPXE/internal/event"
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
 	"github.com/Ostsee-Developer/AegisPXE/internal/installation"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
 	"github.com/Ostsee-Developer/AegisPXE/internal/operator"
 	"github.com/Ostsee-Developer/AegisPXE/internal/profile"
+	"github.com/Ostsee-Developer/AegisPXE/internal/trust"
 )
+
+const dashboardEventLimit = 200
 
 func (h *DashboardHandler) dashboardMachines(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireDashboardPage(w, r)
@@ -25,7 +29,7 @@ func (h *DashboardHandler) dashboardMachines(w http.ResponseWriter, r *http.Requ
 		h.writeDashboardError(w, r, "machines", err)
 		return
 	}
-	h.renderDashboard(w, dashboardView{Page: "machines", Title: "Machines", Description: "Discovered PXE clients and explicit provisioning policy.", Session: session, Machines: machines})
+	h.renderDashboard(w, dashboardView{Page: "machines", Title: "Machines", Description: "Discovered PXE clients, explicit provisioning policy and audit history.", Session: session, Machines: machines})
 }
 
 func (h *DashboardHandler) dashboardMachine(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +48,12 @@ func (h *DashboardHandler) dashboardMachine(w http.ResponseWriter, r *http.Reque
 		h.writeDashboardError(w, r, "machine_identifiers", err)
 		return
 	}
-	h.renderDashboard(w, dashboardView{Page: "machines", Title: "Machine", Description: "Discovery identity is inventory data, never authentication.", Session: session, Machine: &item, Identifiers: identifiers})
+	events, err := h.state.RecentEvents(r.Context(), event.EntityMachine, machineID, dashboardEventLimit)
+	if err != nil {
+		h.writeDashboardError(w, r, "machine_events", err)
+		return
+	}
+	h.renderDashboard(w, dashboardView{Page: "machines", Title: "Machine", Description: "Discovery identity is inventory data, never authentication. Recent persisted events remain visible for audit and troubleshooting.", Session: session, Machine: &item, Identifiers: identifiers, Events: events})
 }
 
 func (h *DashboardHandler) dashboardMachinePolicy(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +80,7 @@ func (h *DashboardHandler) dashboardInstallations(w http.ResponseWriter, r *http
 		h.writeDashboardError(w, r, "installations", err)
 		return
 	}
-	h.renderDashboard(w, dashboardView{Page: "installations", Title: "Installations", Description: "Immutable specifications. Arming a destructive boot remains a separate explicit action.", Session: session, Installations: rows})
+	h.renderDashboard(w, dashboardView{Page: "installations", Title: "Installations", Description: "Immutable specifications, assignment state and trust gates. Arming remains a separate explicit action.", Session: session, Installations: rows})
 }
 
 func (h *DashboardHandler) dashboardInstallation(w http.ResponseWriter, r *http.Request) {
@@ -85,6 +94,11 @@ func (h *DashboardHandler) dashboardInstallation(w http.ResponseWriter, r *http.
 		h.writeDashboardError(w, r, "installation", err)
 		return
 	}
+	item, err := h.state.Machine(r.Context(), spec.MachineID)
+	if err != nil {
+		h.writeDashboardError(w, r, "installation_machine", err)
+		return
+	}
 	var assigned *assignment.Assignment
 	stored, err := h.state.AssignmentForInstallation(r.Context(), installationID)
 	if err == nil {
@@ -93,7 +107,14 @@ func (h *DashboardHandler) dashboardInstallation(w http.ResponseWriter, r *http.
 		h.writeDashboardError(w, r, "installation_assignment", err)
 		return
 	}
-	h.renderDashboard(w, dashboardView{Page: "installations", Title: "Installation", Description: "Review the immutable target state before arming the next PXE boot.", Session: session, Spec: &spec, Assignment: assigned})
+	events, err := h.state.RecentEvents(r.Context(), event.EntityInstallation, installationID, dashboardEventLimit)
+	if err != nil {
+		h.writeDashboardError(w, r, "installation_events", err)
+		return
+	}
+	armed := assigned != nil && assigned.State == assignment.StateArmed
+	gate := trust.Evaluate(item.Policy, armed, false)
+	h.renderDashboard(w, dashboardView{Page: "installations", Title: "Installation", Description: "Immutable target state, trust gates and recent persisted provisioning activity.", Session: session, Machine: &item, Spec: &spec, Assignment: assigned, Gate: gate, Events: events})
 }
 
 func (h *DashboardHandler) dashboardInstallationWizard(w http.ResponseWriter, r *http.Request) {
