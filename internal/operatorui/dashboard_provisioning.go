@@ -17,6 +17,8 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/trust"
 )
 
+const dashboardEventLimit = 200
+
 func (h *DashboardHandler) dashboardMachines(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireDashboardPage(w, r)
 	if !ok {
@@ -46,12 +48,12 @@ func (h *DashboardHandler) dashboardMachine(w http.ResponseWriter, r *http.Reque
 		h.writeDashboardError(w, r, "machine_identifiers", err)
 		return
 	}
-	events, err := h.state.Events(r.Context(), event.EntityMachine, machineID)
+	events, err := h.state.RecentEvents(r.Context(), event.EntityMachine, machineID, dashboardEventLimit)
 	if err != nil {
 		h.writeDashboardError(w, r, "machine_events", err)
 		return
 	}
-	h.renderDashboard(w, dashboardView{Page: "machines", Title: "Machine", Description: "Discovery identity is inventory data, never authentication. Persisted events remain visible for audit and troubleshooting.", Session: session, Machine: &item, Identifiers: identifiers, Events: events})
+	h.renderDashboard(w, dashboardView{Page: "machines", Title: "Machine", Description: "Discovery identity is inventory data, never authentication. Recent persisted events remain visible for audit and troubleshooting.", Session: session, Machine: &item, Identifiers: identifiers, Events: events})
 }
 
 func (h *DashboardHandler) dashboardMachinePolicy(w http.ResponseWriter, r *http.Request) {
@@ -105,14 +107,14 @@ func (h *DashboardHandler) dashboardInstallation(w http.ResponseWriter, r *http.
 		h.writeDashboardError(w, r, "installation_assignment", err)
 		return
 	}
-	events, err := h.state.Events(r.Context(), event.EntityInstallation, installationID)
+	events, err := h.state.RecentEvents(r.Context(), event.EntityInstallation, installationID, dashboardEventLimit)
 	if err != nil {
 		h.writeDashboardError(w, r, "installation_events", err)
 		return
 	}
 	armed := assigned != nil && assigned.State == assignment.StateArmed
 	gate := trust.Evaluate(item.Policy, armed, false)
-	h.renderDashboard(w, dashboardView{Page: "installations", Title: "Installation", Description: "Immutable target state, trust gates and persisted provisioning activity.", Session: session, Machine: &item, Spec: &spec, Assignment: assigned, Gate: gate, Events: events})
+	h.renderDashboard(w, dashboardView{Page: "installations", Title: "Installation", Description: "Immutable target state, trust gates and recent persisted provisioning activity.", Session: session, Machine: &item, Spec: &spec, Assignment: assigned, Gate: gate, Events: events})
 }
 
 func (h *DashboardHandler) dashboardInstallationWizard(w http.ResponseWriter, r *http.Request) {
