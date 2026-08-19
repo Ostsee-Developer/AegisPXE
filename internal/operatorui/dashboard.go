@@ -59,7 +59,7 @@ func NewDashboardWithTrustedProxy(next http.Handler, state *store.Store, auth *o
 func (h *DashboardHandler) registerDashboardRoutes() {
 	h.mux.HandleFunc("GET /ui/{$}", h.dashboardEntry)
 	h.mux.HandleFunc("GET /ui/assets/dashboard.css", h.dashboardRCStyle)
-	h.mux.HandleFunc("GET /ui/assets/dashboard.js", h.dashboardRCScript)
+	h.mux.HandleFunc("GET /ui/assets/dashboard.js", h.dashboardStableScript)
 
 	h.mux.HandleFunc("POST /ui/auth/bootstrap", h.bootstrapInitialAdmin)
 	h.mux.HandleFunc("POST /ui/api/passkey/login/start", h.beginExternalPasskeyLogin)
@@ -74,6 +74,8 @@ func (h *DashboardHandler) registerDashboardRoutes() {
 	h.mux.HandleFunc("GET /ui/machines", h.dashboardMachines)
 	h.mux.HandleFunc("GET /ui/machines/{id}", h.dashboardMachine)
 	h.mux.HandleFunc("POST /ui/machines/{id}/policy", h.dashboardMachinePolicy)
+	h.mux.HandleFunc("POST /ui/machines/{id}/nickname", h.dashboardMachineNickname)
+	h.mux.HandleFunc("POST /ui/machines/{id}/delete", h.dashboardDeleteMachine)
 
 	h.mux.HandleFunc("GET /ui/installations", h.dashboardInstallations)
 	h.mux.HandleFunc("GET /ui/installations/new", h.dashboardInstallationWizard)
@@ -81,6 +83,7 @@ func (h *DashboardHandler) registerDashboardRoutes() {
 	h.mux.HandleFunc("GET /ui/installations/{id}", h.dashboardInstallation)
 	h.mux.HandleFunc("POST /ui/installations/{id}/arm", h.dashboardArmInstallation)
 	h.mux.HandleFunc("POST /ui/installations/{id}/cancel", h.dashboardCancelInstallation)
+	h.mux.HandleFunc("POST /ui/installations/{id}/delete", h.dashboardDeleteInstallation)
 	h.mux.HandleFunc("GET /ui/installations/{id}/trust", h.dashboardInstallationTrust)
 	h.mux.HandleFunc("POST /ui/installations/{id}/trust/{fingerprint}/approve", h.dashboardApproveBootTrustKey)
 	h.mux.HandleFunc("POST /ui/installations/{id}/trust/{fingerprint}/revoke", h.dashboardRevokeBootTrustKey)
