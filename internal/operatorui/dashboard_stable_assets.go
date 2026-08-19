@@ -26,6 +26,11 @@ const dashboardManagementCSS = `
 .management-card label{display:grid;gap:8px;margin-top:14px}
 .management-card input{width:100%;min-height:42px;padding:9px 11px}
 .management-card .card-actions{margin-top:14px}
+.secureboot-chip{display:inline-flex;align-items:center;gap:7px;margin-top:9px;padding:5px 9px;border:1px solid var(--border);border-radius:999px;color:var(--muted);font-size:11px;letter-spacing:.02em}
+.secureboot-chip strong{color:var(--text);font-size:11px}
+.secureboot-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.secureboot-chip[data-state="enabled"]{color:var(--accent)}
+.secureboot-chip[data-state="disabled"],.secureboot-chip[data-state="setup_mode"]{color:var(--danger)}
 `
 
 const dashboardManagementJS = `
@@ -73,8 +78,9 @@ const dashboardManagementJS = `
         link.appendChild(suffix);
       });
       if (machineMatch) {
+        const metadata = names[machineMatch[1]] || {};
         const heading = document.querySelector(".detail-panel .panel-head h2.mono");
-        const nickname = String((names[machineMatch[1]] || {}).nickname || "").trim();
+        const nickname = String(metadata.nickname || "").trim();
         if (heading && nickname) {
           const id = heading.textContent.trim();
           heading.classList.remove("mono");
@@ -83,6 +89,23 @@ const dashboardManagementJS = `
           idLine.className = "mono";
           idLine.textContent = id;
           heading.insertAdjacentElement("afterend", idLine);
+        }
+        const state = String(metadata.secure_boot_state || "unknown").trim() || "unknown";
+        const panelHead = document.querySelector(".detail-panel .panel-head > div");
+        if (panelHead && !panelHead.querySelector("[data-secureboot-chip]")) {
+          const chip = document.createElement("span");
+          chip.className = "secureboot-chip";
+          chip.dataset.securebootChip = "1";
+          chip.dataset.state = state;
+          const dot = document.createElement("span");
+          dot.className = "secureboot-dot";
+          const label = document.createElement("span");
+          label.textContent = "Secure Boot ";
+          const value = document.createElement("strong");
+          value.textContent = state.toUpperCase().replaceAll("_", " ");
+          label.appendChild(value);
+          chip.append(dot, label);
+          panelHead.appendChild(chip);
         }
       }
     })
