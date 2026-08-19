@@ -12,11 +12,11 @@ import (
 type Policy string
 
 const (
-	PolicyPending   Policy = "pending"
-	PolicyLocal     Policy = "local"
-	PolicyProvision Policy = "provision"
-	PolicyBlocked   Policy = "blocked"
-	MaxNicknameRunes       = 80
+	PolicyPending    Policy = "pending"
+	PolicyLocal      Policy = "local"
+	PolicyProvision  Policy = "provision"
+	PolicyBlocked    Policy = "blocked"
+	MaxNicknameRunes        = 80
 )
 
 type IdentifierKind string
