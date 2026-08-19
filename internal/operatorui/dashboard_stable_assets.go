@@ -2,12 +2,31 @@ package operatorui
 
 import "net/http"
 
+func (h *DashboardHandler) dashboardStableStyle(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	_, _ = w.Write([]byte(dashboardCSS + dashboardRCTheme + dashboardManagementCSS))
+}
+
 func (h *DashboardHandler) dashboardStableScript(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	_, _ = w.Write([]byte(dashboardJS + dashboardRCJS + dashboardManagementJS))
 }
+
+const dashboardManagementCSS = `
+.machine-id-sub{display:block;color:var(--muted);font-size:10px;margin-top:2px}
+.management-shell{min-height:100vh;padding:34px 20px;background:var(--bg)}
+.management-card{width:min(100%,980px);margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.management-card .page-head{padding:22px 24px 18px;margin:0}
+.management-card .detail-body{padding:22px 24px}
+.management-card .section+.section{margin-top:28px;padding-top:22px;border-top:1px solid var(--border)}
+.management-card label{display:grid;gap:8px;margin-top:14px}
+.management-card input{width:100%;min-height:42px;padding:9px 11px}
+.management-card .card-actions{margin-top:14px}
+`
 
 const dashboardManagementJS = `
 (() => {
@@ -49,9 +68,7 @@ const dashboardManagementJS = `
         link.textContent = nickname;
         link.title = id;
         const suffix = document.createElement("small");
-        suffix.className = "mono";
-        suffix.style.display = "block";
-        suffix.style.color = "var(--muted)";
+        suffix.className = "mono machine-id-sub";
         suffix.textContent = id;
         link.appendChild(suffix);
       });
