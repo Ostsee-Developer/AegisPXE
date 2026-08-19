@@ -25,8 +25,8 @@ func TestReporterBootScriptInjectsReporterBeforeFinalPreseedWithoutSecrets(t *te
 		t.Fatalf("reporter boot script status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	reporterLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/reporter /aegispxe/reporter"
-	configLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/reporter.json /aegispxe/reporter.json"
+	reporterLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/reporter /aegispxe/reporter mode=755 mkdir=1"
+	configLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/reporter.json /aegispxe/reporter.json mkdir=1"
 	preseedLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/preseed.cfg /preseed.cfg"
 	for _, want := range []string{reporterLine, configLine, preseedLine} {
 		if !strings.Contains(body, want) {
