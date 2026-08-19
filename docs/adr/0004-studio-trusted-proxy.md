@@ -1,6 +1,6 @@
 # ADR 0004: Studio listener and trusted reverse-proxy boundary
 
-- Status: Accepted; authentication/session sections superseded in part by ADR 0005
+- Status: Accepted; authentication/session sections superseded in part by ADR 0008
 - Date: 2026-08-18
 
 ## Context
@@ -59,11 +59,11 @@ A trusted proxy source without an identity may reach the Studio transport bounda
 
 ### 4. AegisPXE session remains an application responsibility
 
-As superseded by ADR 0005, a trusted proxy identity alone no longer creates an AegisPXE operator session.
+As superseded by ADR 0008, a trusted proxy identity alone no longer creates an AegisPXE operator session.
 
 The external subject selects the AegisPXE user. AegisPXE then requires its own Passkey proof and applies its own user status/role authorization before issuing a session. Browser mutations remain protected by session-bound CSRF.
 
-See `docs/adr/0005-layered-human-authentication.md` for the current human-authentication contract.
+See `docs/adr/0008-layered-human-authentication.md` for the current human-authentication contract.
 
 ### 5. Non-loopback Studio binding fails closed
 
@@ -78,7 +78,7 @@ Host firewalls should additionally restrict the Studio backend port to the rever
 
 ### 6. Local operator key becomes a recovery factor
 
-As superseded by ADR 0005, the local operator key is not a standalone browser login. It is retained as a local recovery factor and as the proof required to claim the initial administrator before Passkey enrollment.
+As superseded by ADR 0008, the local operator key is not a standalone browser login. It is retained as a local recovery factor and as the proof required to claim the initial administrator before Passkey enrollment.
 
 ### 7. Operator trust and installer trust remain separate
 
