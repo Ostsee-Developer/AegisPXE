@@ -58,8 +58,8 @@ func NewDashboardWithTrustedProxy(next http.Handler, state *store.Store, auth *o
 
 func (h *DashboardHandler) registerDashboardRoutes() {
 	h.mux.HandleFunc("GET /ui/{$}", h.dashboardEntry)
-	h.mux.HandleFunc("GET /ui/assets/dashboard.css", h.dashboardStyle)
-	h.mux.HandleFunc("GET /ui/assets/dashboard.js", h.dashboardScript)
+	h.mux.HandleFunc("GET /ui/assets/dashboard.css", h.dashboardRCStyle)
+	h.mux.HandleFunc("GET /ui/assets/dashboard.js", h.dashboardRCScript)
 
 	h.mux.HandleFunc("POST /ui/auth/bootstrap", h.bootstrapInitialAdmin)
 	h.mux.HandleFunc("POST /ui/api/passkey/login/start", h.beginExternalPasskeyLogin)
