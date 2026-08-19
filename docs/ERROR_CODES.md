@@ -25,7 +25,7 @@ Examples:
 - `ART`: artifact resolution/download/integrity,
 - `DRV`: driver compile/render/capability,
 - `INS`: installation specification, assignment, native installer and first-boot runtime,
-- `SEC`: authentication, authorization, trust and secret handling,
+- `SEC`: authentication, authorization, trust, Secure Boot and secret handling,
 - `VAL`: desired-state validation,
 - `SYS`: internal service/storage/platform failures.
 
@@ -88,6 +88,9 @@ Examples:
 | `SEC020_BOOT_TRUST_PROOF_INVALID` | The signed boot-trust challenge proof or its binding did not verify. |
 | `SEC021_BOOT_TRUST_CHALLENGE_EXPIRED` | A boot-trust challenge was presented outside its short validity window. |
 | `SEC022_BOOT_TRUST_REPLAY_REJECTED` | A previously consumed boot-trust challenge could not be safely treated as an idempotent retry. |
+| `SEC023_SECURE_BOOT_REQUIRED` | Required Secure Boot policy refused provisioning because the Machine was not observed in UEFI Secure Boot enabled state. |
+| `SEC024_SECURE_BOOT_EVIDENCE_INVALID` | Reported UEFI `SecureBoot`/`SetupMode` values were malformed and therefore rejected. |
+| `SEC025_SECURE_BOOT_ASSETS_INVALID` | The packaged iPXE Secure Boot chain is missing, modified, unsafe, unpinned or failed runtime integrity validation. |
 | `VAL001_FIRST_BOOT_VALIDATION_FAILED` | The installed OS failed one or more mandatory AegisPXE first-boot validation checks. |
 | `SYS001_STORAGE_FAILURE` | The persistent store could not complete an operation safely. |
 
