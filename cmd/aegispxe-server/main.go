@@ -103,12 +103,13 @@ func main() {
 	}
 
 	app := httpapi.New(state, logger, version)
+	publicHandler := app.HandlerWithBootTrust()
 	servers := []namedHTTPServer{{
 		name:   "pxe",
-		server: newHTTPServer(pxeAddress, pxeSurface(app.Handler())),
+		server: newHTTPServer(pxeAddress, pxeSurface(publicHandler)),
 	}}
 	if !strings.EqualFold(studioAddress, "disabled") {
-		studioHandler := operatorui.NewDashboardWithTrustedProxy(app.Handler(), state, operatorAuth, passkeys, logBuffer, logger, proxyTrust)
+		studioHandler := operatorui.NewDashboardWithTrustedProxy(publicHandler, state, operatorAuth, passkeys, logBuffer, logger, proxyTrust)
 		studioHandler = studioSurface(studioHandler)
 		studioHandler = operatorui.RequireTrustedProxyOrLoopback(studioHandler, proxyTrust, logger)
 		servers = append(servers, namedHTTPServer{name: "studio", server: newHTTPServer(studioAddress, studioHandler)})
@@ -169,12 +170,31 @@ func newHTTPServer(address string, handler http.Handler) *http.Server {
 func pxeSurface(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/healthz" || strings.HasPrefix(path, "/boot/") || path == "/api/v1/discovery" || path == "/api/v1/discovery.ipxe" {
+		if path == "/healthz" || strings.HasPrefix(path, "/boot/") || path == "/api/v1/discovery" || path == "/api/v1/discovery.ipxe" || installerPXEAPIPath(path) {
 			next.ServeHTTP(w, r)
 			return
 		}
 		http.NotFound(w, r)
 	})
+}
+
+func installerPXEAPIPath(path string) bool {
+	if !strings.HasPrefix(path, "/api/v1/installations/") {
+		return false
+	}
+	for _, suffix := range []string{
+		"/telemetry/events",
+		"/telemetry/logs",
+		"/trust/enroll",
+		"/trust/status",
+		"/trust/challenge",
+		"/trust/prove",
+	} {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func studioSurface(next http.Handler) http.Handler {
