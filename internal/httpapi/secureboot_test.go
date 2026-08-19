@@ -115,6 +115,20 @@ func TestRequiredSecureBootEnabledMachineGetsSignedDebianShimBootScript(t *testi
 	if !strings.Contains(body, "/artifacts/bootnetx64.efi") || !strings.Contains(body, "shim http://") {
 		t.Fatalf("Secure Boot shim was not configured: %s", body)
 	}
+
+	kernelIndex := strings.Index(body, "kernel http://")
+	initrdIndex := strings.Index(body, "/artifacts/initrd.gz")
+	shimIndex := strings.Index(body, "shim http://")
+	preseedIndex := strings.Index(body, "/preseed.cfg")
+	bootIndex := strings.Index(body, "\nboot || goto boot_failed")
+	if kernelIndex < 0 || initrdIndex < 0 || shimIndex < 0 || preseedIndex < 0 || bootIndex < 0 ||
+		!(kernelIndex < initrdIndex && initrdIndex < shimIndex && shimIndex < preseedIndex && preseedIndex < bootIndex) {
+		t.Fatalf("Secure Boot material order must fetch shim before one-shot preseed handoff: %s", body)
+	}
+	if !strings.Contains(body, "Secure Boot shim fetch or configuration failed") || strings.Contains(body, "shim validation failed") {
+		t.Fatalf("Secure Boot shim failure message is misleading: %s", body)
+	}
+
 	for _, forbidden := range []string{"reporter", "overlay.cpio", "initrd.img", "initrd=", "initrd.magic"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("Secure Boot reintroduced suspended installer transport %q: %s", forbidden, body)
