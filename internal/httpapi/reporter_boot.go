@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -114,10 +115,7 @@ func (s *Server) installationReporterBinary(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	if _, err := fmt.Fprint(w, ""); err != nil {
-		return
-	}
-	if _, err := file.WriteTo(w); err != nil {
+	if _, err := io.Copy(w, file); err != nil {
 		s.logger.WarnContext(r.Context(), "Debian reporter binary response write failed", "component", "httpapi.provisioning", "operation", "serve_reporter_binary", "request_id", requestID(r.Context()), "machine_id", material.Machine.ID, "installation_id", material.Spec.ID, "error_code", fault.DriverRenderFailed, "result", "response_write_failed")
 		return
 	}
