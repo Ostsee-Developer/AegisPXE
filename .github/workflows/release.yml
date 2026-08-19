@@ -148,7 +148,7 @@ jobs:
         if: steps.version.outputs.release == 'true'
         uses: actions/setup-go@v7
         with:
-          go-version: 1.25.x
+          go-version: 1.25.13
 
       - name: Run release gate
         if: steps.version.outputs.release == 'true'
