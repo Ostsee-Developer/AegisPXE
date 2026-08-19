@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 6
+const currentSchemaVersion = 7
 
 func (s *Store) initialize(ctx context.Context) error {
 	for _, pragma := range []string{
@@ -30,9 +30,10 @@ func (s *Store) initialize(ctx context.Context) error {
 			version INTEGER NOT NULL
 		)`,
 		`INSERT INTO schema_meta(version)
-		 SELECT 6 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
+		 SELECT 7 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
 		`CREATE TABLE IF NOT EXISTS machines (
 			id TEXT PRIMARY KEY,
+			nickname TEXT NOT NULL DEFAULT '',
 			policy TEXT NOT NULL CHECK(policy IN ('pending','local','provision','blocked')),
 			architecture TEXT NOT NULL DEFAULT '',
 			firmware TEXT NOT NULL DEFAULT '',
@@ -216,6 +217,18 @@ func (s *Store) initialize(ctx context.Context) error {
 			return fmt.Errorf("migrate installation profile snapshot: %w", err)
 		}
 	}
+
+	hasNickname, err := columnExists(ctx, tx, "machines", "nickname")
+	if err != nil {
+		return fmt.Errorf("inspect machine nickname schema: %w", err)
+	}
+	nicknameColumnAdded := !hasNickname
+	if nicknameColumnAdded {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE machines ADD COLUMN nickname TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("migrate machine nickname: %w", err)
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, `UPDATE schema_meta SET version=?`, currentSchemaVersion); err != nil {
 		return fmt.Errorf("update schema version: %w", err)
 	}
@@ -223,13 +236,14 @@ func (s *Store) initialize(ctx context.Context) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit schema: %w", err)
 	}
-	if fromVersion != currentSchemaVersion || profileColumnAdded {
+	if fromVersion != currentSchemaVersion || profileColumnAdded || nicknameColumnAdded {
 		s.logger.InfoContext(ctx, "storage schema migrated",
 			"component", "store.schema",
 			"operation", "migrate",
 			"from_version", fromVersion,
 			"to_version", currentSchemaVersion,
 			"profile_snapshot_column_added", profileColumnAdded,
+			"machine_nickname_column_added", nicknameColumnAdded,
 			"assignment_schema_added", fromVersion < 3,
 			"operator_identity_schema_added", fromVersion < 4,
 			"installer_telemetry_schema_added", fromVersion < 5,
