@@ -20,6 +20,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
 	"github.com/Ostsee-Developer/AegisPXE/internal/lifecycle"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
+	"github.com/Ostsee-Developer/AegisPXE/internal/secureboot"
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
 )
 
@@ -29,11 +30,18 @@ const (
 	maxDiscoveryPerWindow = 120
 )
 
+type Config struct {
+	SecureBootPolicy      secureboot.Policy
+	SecureBootAssetsValid bool
+}
+
 type Server struct {
-	state   *store.Store
-	logger  *slog.Logger
-	version string
-	limiter discoveryLimiter
+	state                 *store.Store
+	logger                *slog.Logger
+	version               string
+	secureBootPolicy      secureboot.Policy
+	secureBootAssetsValid bool
+	limiter               discoveryLimiter
 }
 
 type discoveryLimiter struct {
@@ -47,13 +55,14 @@ type discoveryCounter struct {
 }
 
 type discoveryResponse struct {
-	MachineID      string         `json:"machine_id"`
-	Created        bool           `json:"created"`
-	Policy         machine.Policy `json:"policy"`
-	Action         boot.Action    `json:"action"`
-	Reason         string         `json:"reason"`
-	InstallationID string         `json:"installation_id,omitempty"`
-	AssignmentID   string         `json:"-"`
+	MachineID      string           `json:"machine_id"`
+	Created        bool             `json:"created"`
+	Policy         machine.Policy   `json:"policy"`
+	SecureBoot     secureboot.State `json:"secure_boot_state"`
+	Action         boot.Action      `json:"action"`
+	Reason         string           `json:"reason"`
+	InstallationID string           `json:"installation_id,omitempty"`
+	AssignmentID   string           `json:"-"`
 }
 
 type identifierResponse struct {
@@ -62,13 +71,15 @@ type identifierResponse struct {
 }
 
 type machineResponse struct {
-	ID           string               `json:"id"`
-	Policy       machine.Policy       `json:"policy"`
-	Architecture string               `json:"architecture"`
-	Firmware     string               `json:"firmware"`
-	FirstSeen    time.Time            `json:"first_seen"`
-	LastSeen     time.Time            `json:"last_seen"`
-	Identifiers  []identifierResponse `json:"identifiers,omitempty"`
+	ID                 string               `json:"id"`
+	Policy             machine.Policy       `json:"policy"`
+	Architecture       string               `json:"architecture"`
+	Firmware           string               `json:"firmware"`
+	SecureBootState    secureboot.State     `json:"secure_boot_state"`
+	SecureBootObserved time.Time            `json:"secure_boot_observed_at,omitempty"`
+	FirstSeen          time.Time            `json:"first_seen"`
+	LastSeen           time.Time            `json:"last_seen"`
+	Identifiers        []identifierResponse `json:"identifiers,omitempty"`
 }
 
 type eventResponse struct {
@@ -84,7 +95,22 @@ type eventResponse struct {
 type requestIDKey struct{}
 
 func New(state *store.Store, logger *slog.Logger, version string) *Server {
-	return &Server{state: state, logger: logger, version: version, limiter: discoveryLimiter{clients: make(map[string]discoveryCounter)}}
+	return NewWithConfig(state, logger, version, Config{SecureBootPolicy: secureboot.PolicyAudit})
+}
+
+func NewWithConfig(state *store.Store, logger *slog.Logger, version string, config Config) *Server {
+	policy := config.SecureBootPolicy
+	if _, err := secureboot.ParsePolicy(string(policy)); err != nil {
+		policy = secureboot.PolicyAudit
+	}
+	return &Server{
+		state:                 state,
+		logger:                logger,
+		version:               version,
+		secureBootPolicy:      policy,
+		secureBootAssetsValid: config.SecureBootAssetsValid,
+		limiter:               discoveryLimiter{clients: make(map[string]discoveryCounter)},
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -108,10 +134,15 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	if err := s.state.Ping(r.Context()); err != nil {
 		s.logger.ErrorContext(r.Context(), "health check failed", "component", "httpapi", "operation", "health", "error_code", fault.StorageFailure, "error", err)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unhealthy"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "unhealthy"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": s.version})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":                   "ok",
+		"version":                  s.version,
+		"secure_boot_policy":       s.secureBootPolicy,
+		"secure_boot_assets_valid": s.secureBootAssetsValid,
+	})
 }
 
 func (s *Server) discoveryJSON(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +210,9 @@ func (s *Server) discoveryIPXE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	message := fmt.Sprintf("Machine %s registered (%s)", response.MachineID, response.Policy)
-	if response.Action == boot.ActionBlocked {
+	if response.Reason == "secure_boot_required" {
+		message = fmt.Sprintf("Machine %s requires UEFI Secure Boot before provisioning", response.MachineID)
+	} else if response.Action == boot.ActionBlocked {
 		message = fmt.Sprintf("Machine %s is blocked by AegisPXE policy", response.MachineID)
 	}
 	s.writeIPXE(w, message, response.Reason)
@@ -194,6 +227,18 @@ func (s *Server) discover(ctx context.Context, observation machine.Observation, 
 	if err != nil {
 		return discoveryResponse{}, err
 	}
+	if s.secureBootPolicy == secureboot.PolicyAudit && item.SecureBootState != secureboot.StateEnabled {
+		s.logger.WarnContext(ctx, "Secure Boot audit observed non-enforcing machine state",
+			"component", "boot.secureboot",
+			"operation", "evaluate",
+			"request_id", requestID,
+			"machine_id", item.ID,
+			"secure_boot_policy", s.secureBootPolicy,
+			"secure_boot_state", item.SecureBootState,
+			"firmware", item.Firmware,
+			"result", "audit_warning",
+		)
+	}
 	s.logger.InfoContext(ctx, "boot decision evaluated",
 		"component", "boot.policy",
 		"operation", "evaluate",
@@ -202,6 +247,8 @@ func (s *Server) discover(ctx context.Context, observation machine.Observation, 
 		"installation_id", installationID,
 		"assignment_id", assignmentID,
 		"policy", item.Policy,
+		"secure_boot_policy", s.secureBootPolicy,
+		"secure_boot_state", item.SecureBootState,
 		"action", decision.Action,
 		"reason", decision.Reason,
 		"result", "success",
@@ -210,6 +257,7 @@ func (s *Server) discover(ctx context.Context, observation machine.Observation, 
 		MachineID:      item.ID,
 		Created:        created,
 		Policy:         item.Policy,
+		SecureBoot:     item.SecureBootState,
 		Action:         decision.Action,
 		Reason:         decision.Reason,
 		InstallationID: installationID,
@@ -219,16 +267,16 @@ func (s *Server) discover(ctx context.Context, observation machine.Observation, 
 
 func (s *Server) discoveryBootstrap(w http.ResponseWriter, r *http.Request) {
 	base := requestBaseURL(r)
-	endpoint := base + "/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid}&architecture=${buildarch:uristring}&firmware=${platform:uristring}"
+	endpoint := base + "/api/v1/discovery.ipxe?mac=${net0/mac}&smbios_uuid=${uuid}&architecture=${buildarch:uristring}&firmware=${platform:uristring}&secure_boot=${efi/SecureBoot:hex}&setup_mode=${efi/SetupMode:hex}"
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = fmt.Fprintf(w, "#!ipxe\n")
-	_, _ = fmt.Fprintf(w, "echo AegisPXE headless discovery\n")
+	_, _ = fmt.Fprintln(w, "#!ipxe")
+	_, _ = fmt.Fprintln(w, "echo AegisPXE headless discovery")
 	_, _ = fmt.Fprintf(w, "chain %s || goto discovery_failed\n", endpoint)
-	_, _ = fmt.Fprintf(w, "exit 0\n")
-	_, _ = fmt.Fprintf(w, ":discovery_failed\n")
-	_, _ = fmt.Fprintf(w, "echo AegisPXE discovery endpoint unavailable; exiting safely\n")
-	_, _ = fmt.Fprintf(w, "exit 0\n")
+	_, _ = fmt.Fprintln(w, "exit 0")
+	_, _ = fmt.Fprintln(w, ":discovery_failed")
+	_, _ = fmt.Fprintln(w, "echo AegisPXE discovery endpoint unavailable; exiting safely")
+	_, _ = fmt.Fprintln(w, "exit 0")
 }
 
 func (s *Server) machines(w http.ResponseWriter, r *http.Request) {
@@ -281,12 +329,15 @@ func (s *Server) writeDiscoveryError(w http.ResponseWriter, r *http.Request, err
 	code := fault.Code(err)
 	status := http.StatusInternalServerError
 	switch code {
-	case fault.MachineIdentityInvalid:
+	case fault.MachineIdentityInvalid, fault.SecureBootEvidenceInvalid:
 		status = http.StatusBadRequest
 	case fault.MachineIdentityConflict:
 		status = http.StatusConflict
 	case fault.StorageFailure:
 		status = http.StatusServiceUnavailable
+	}
+	if code == "" {
+		code = fault.StorageFailure
 	}
 	s.logger.WarnContext(r.Context(), "machine discovery request failed", "component", "httpapi", "operation", "discover", "request_id", requestID(r.Context()), "error_code", code, "error", err)
 	writeAPIError(w, status, code, err.Error())
@@ -307,10 +358,10 @@ func (s *Server) writeIPXE(w http.ResponseWriter, message, reason string) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = fmt.Fprintf(w, "#!ipxe\n")
+	_, _ = fmt.Fprintln(w, "#!ipxe")
 	_, _ = fmt.Fprintf(w, "echo %s\n", ipxeSafe(message))
 	_, _ = fmt.Fprintf(w, "echo Decision: %s\n", ipxeSafe(reason))
-	_, _ = fmt.Fprintf(w, "exit 0\n")
+	_, _ = fmt.Fprintln(w, "exit 0")
 }
 
 func decodeObservation(w http.ResponseWriter, r *http.Request) (machine.Observation, error) {
@@ -322,6 +373,8 @@ func decodeObservation(w http.ResponseWriter, r *http.Request) (machine.Observat
 			SMBIOSUUID   string `json:"smbios_uuid"`
 			Architecture string `json:"architecture"`
 			Firmware     string `json:"firmware"`
+			SecureBoot   string `json:"secure_boot"`
+			SetupMode    string `json:"setup_mode"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -331,7 +384,10 @@ func decodeObservation(w http.ResponseWriter, r *http.Request) (machine.Observat
 		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 			return machine.Observation{}, errors.New("discovery request must contain one JSON object")
 		}
-		return machine.Observation{MAC: payload.MAC, SMBIOSUUID: payload.SMBIOSUUID, Architecture: payload.Architecture, Firmware: payload.Firmware}, nil
+		return machine.Observation{
+			MAC: payload.MAC, SMBIOSUUID: payload.SMBIOSUUID, Architecture: payload.Architecture, Firmware: payload.Firmware,
+			SecureBoot: payload.SecureBoot, SetupMode: payload.SetupMode,
+		}, nil
 	}
 
 	if err := r.ParseForm(); err != nil {
@@ -342,11 +398,17 @@ func decodeObservation(w http.ResponseWriter, r *http.Request) (machine.Observat
 		SMBIOSUUID:   firstNonEmpty(r.Form.Get("smbios_uuid"), r.Form.Get("uuid")),
 		Architecture: r.Form.Get("architecture"),
 		Firmware:     r.Form.Get("firmware"),
+		SecureBoot:   r.Form.Get("secure_boot"),
+		SetupMode:    r.Form.Get("setup_mode"),
 	}, nil
 }
 
 func machineView(item machine.Machine, identifiers []machine.Identifier) machineResponse {
-	out := machineResponse{ID: item.ID, Policy: item.Policy, Architecture: item.Architecture, Firmware: item.Firmware, FirstSeen: item.FirstSeen, LastSeen: item.LastSeen}
+	out := machineResponse{
+		ID: item.ID, Policy: item.Policy, Architecture: item.Architecture, Firmware: item.Firmware,
+		SecureBootState: item.SecureBootState, SecureBootObserved: item.SecureBootObserved,
+		FirstSeen: item.FirstSeen, LastSeen: item.LastSeen,
+	}
 	for _, identifier := range identifiers {
 		out.Identifiers = append(out.Identifiers, identifierResponse{Kind: identifier.Kind, Value: identifier.Value})
 	}
@@ -375,7 +437,6 @@ func (s *Server) allowDiscovery(r *http.Request) bool {
 			if now.Sub(counter.started) >= 2*discoveryWindow {
 				delete(s.limiter.clients, client)
 			}
-		}
 	}
 	if _, known := s.limiter.clients[key]; !known && len(s.limiter.clients) >= 4096 {
 		return false
