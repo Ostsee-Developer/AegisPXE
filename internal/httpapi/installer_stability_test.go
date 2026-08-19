@@ -26,6 +26,7 @@ func TestBootTrustHandlerKeepsKnownGoodDebianBootTransport(t *testing.T) {
 		"kernel http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/linux auto=true priority=critical interface=auto",
 		"initrd http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/initrd.gz",
 		"initrd http://aegispxe.test/boot/installations/" + spec.ID + "/preseed.cfg /preseed.cfg",
+		"shim http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/bootnetx64.efi || goto secure_boot_failed",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("known-good Debian boot script missing %q: %s", want, body)
