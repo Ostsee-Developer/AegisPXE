@@ -80,7 +80,6 @@ func TestLifecycleEventsAreMonotonicAndIdempotent(t *testing.T) {
 		source lifecycle.Source
 		key    string
 	}{
-		{lifecycle.StageCreated, lifecycle.SourceServer, "server-created"},
 		{lifecycle.StageQueued, lifecycle.SourceServer, "server-queued"},
 		{lifecycle.StagePXEBooted, lifecycle.SourceServer, "server-pxe"},
 		{lifecycle.StageInstallerStarted, lifecycle.SourceInstaller, "installer-started"},
@@ -126,8 +125,11 @@ func TestLifecycleEventsAreMonotonicAndIdempotent(t *testing.T) {
 		t.Fatalf("unexpected current stage %q err=%v", stage, err)
 	}
 	events, err := store.LifecycleEvents(ctx, spec.ID, 100)
-	if err != nil || len(events) != len(path) {
+	if err != nil || len(events) != len(path)+1 {
 		t.Fatalf("unexpected lifecycle events len=%d err=%v", len(events), err)
+	}
+	if events[0].Stage != lifecycle.StageCreated {
+		t.Fatalf("installation creation did not seed lifecycle: %+v", events)
 	}
 }
 
@@ -143,7 +145,6 @@ func TestTerminalLifecycleRevokesCredential(t *testing.T) {
 		stage  lifecycle.Stage
 		source lifecycle.Source
 	}{
-		{lifecycle.StageCreated, lifecycle.SourceServer},
 		{lifecycle.StageQueued, lifecycle.SourceServer},
 		{lifecycle.StagePXEBooted, lifecycle.SourceServer},
 		{lifecycle.StageInstallerStarted, lifecycle.SourceInstaller},
