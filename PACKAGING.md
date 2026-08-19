@@ -59,11 +59,55 @@ The package owns installation and upgrade of AegisPXE application files, includi
 - required runtime directories,
 - ownership and filesystem permissions,
 - package metadata and dependencies,
-- safe schema migration invocation once persistent schemas exist.
+- safe schema migration invocation once persistent schemas exist,
+- the validated signed iPXE UEFI Secure Boot first-stage assets required by the supported boot contract.
 
-Starting with the 0.0.3 discovery slice, the package also owns the availability of its stage-1 PXE runtime dependencies. When `tftpd-hpa` already defines a safe absolute `TFTP_DIRECTORY`, package configuration may materialize AegisPXE's iPXE stage-1 files into that root. It must not replace an existing file whose content differs from the packaged iPXE asset. See [`docs/PXE_RUNTIME.md`](docs/PXE_RUNTIME.md).
+When `tftpd-hpa` defines a safe absolute `TFTP_DIRECTORY`, package configuration materializes package-managed PXE assets into that root. Package-managed files are refreshed atomically when their bytes differ from the package source so an upgrade cannot leave an older unsigned or stale bootloader indefinitely. Symlink and non-regular destinations are rejected instead of followed or overwritten.
 
-The package must not silently choose DHCP ranges, router credentials, installation profiles, machine policy or privileged administrative exposure.
+The package must not silently choose DHCP ranges, router credentials, installation profiles, machine policy or privileged administrative exposure. DHCP remains administrator-owned. For the Secure Boot contract, x86-64 UEFI clients must be configured to request `ipxe-shim.efi`; AegisPXE packages and materializes that file but does not rewrite DHCP configuration.
+
+## Secure Boot package assets
+
+`0.1.0-dev.22` adds package-owned Secure Boot assets under:
+
+```text
+/usr/lib/aegispxe/secureboot/
+  manifest.json
+  ipxe-shim.efi
+  ipxe.efi
+```
+
+The package build obtains these from the official iPXE `v2.0.0` network-boot release bundle pinned to upstream commit `12798ec29aa8a64d8675c4378b99f5fe28447afb`.
+
+The build helper must fail closed unless all of these checks succeed:
+
+1. the GitHub release metadata names exactly the pinned stable release,
+2. the release tag resolves to the pinned commit,
+3. exactly one expected `ipxeboot.tar.gz` release asset exists at the expected GitHub download URL,
+4. GitHub provides a SHA-256 digest and bounded size for that asset,
+5. downloaded bytes match that digest and size,
+6. extraction resolves only the two expected x86-64 Secure Boot files and never follows filesystem symlinks or arbitrary archive paths,
+7. an official in-archive hardlink may be resolved only to a regular member inside the same archive and is copied out as a new regular file,
+8. both EFI files contain PE/Authenticode signature tables as checked by `sbverify`,
+9. the generated package manifest records the exact release, commit, release-asset SHA-256, per-file SHA-256 and size.
+
+At runtime AegisPXE independently validates the package-owned files against this manifest. With `AEGISPXE_SECURE_BOOT_POLICY=required`, missing, modified, symlinked, malformed or unpinned Secure Boot assets prevent the service from starting and emit `SEC025_SECURE_BOOT_ASSETS_INVALID`.
+
+TFTP materialization uses:
+
+```text
+ipxe-shim.efi   <- package Secure Boot first stage
+ipxe.efi        <- package signed second stage
+undionly.kpxe   <- distribution iPXE BIOS asset for explicit non-Secure-Boot policy modes
+```
+
+A Secure Boot deployment must never hand UEFI clients the second-stage `ipxe.efi` directly as a substitute for the required shim entry point.
+
+## Reporter package status
+
+The reporter source and trust/telemetry primitives remain in the repository for isolated development, but the reporter executable is intentionally absent from the production `.deb` until a delivery path passes the real Debian UEFI/vTPM E2E gate.
+
+Package smoke must assert that the suspended reporter executable is absent. Secure Boot work must not reintroduce reporter/initramfs injection into the known-good Debian installer transport.
 
 ## Listener defaults
 
@@ -93,6 +137,7 @@ Initial canonical locations:
 
 - `/usr/bin/aegispxe` for the operator CLI when introduced,
 - `/usr/lib/aegispxe/` for internal executables and immutable application assets,
+- `/usr/lib/aegispxe/secureboot/` for package-owned signed PXE assets and their integrity manifest,
 - `/etc/aegispxe/` for administrator-owned configuration,
 - `/var/lib/aegispxe/` for persistent application state,
 - `/var/log/aegispxe/` only for log material that is intentionally persisted as files; structured service logs may otherwise use journald,
@@ -106,7 +151,9 @@ Package installation may install and register systemd units. A service may start
 
 The documented network-reachable PXE default is permitted because only the low-privilege PXE route allowlist is present there. Administrative routes remain on the separate loopback/trusted-proxy Studio surface.
 
-If required privileged configuration is missing or inconsistent, the service should fail closed with a precise status and structured diagnostic rather than guessing values.
+The packaged Secure Boot policy is `required`. Therefore the service also requires a valid package-owned Secure Boot asset manifest and matching signed first-stage files before starting successfully. This is deliberate fail-closed behavior rather than a best-effort warning.
+
+If required privileged or security configuration is missing or inconsistent, the service fails closed with a precise status and structured diagnostic rather than guessing values.
 
 Uninstalling the package must not silently destroy persistent state. Purge semantics, once implemented, must be documented separately and require an explicit administrator action.
 
@@ -122,9 +169,13 @@ Database or state migrations must:
 4. fail closed without partially advancing the recorded schema version,
 5. have an explicit rollback or recovery story where destructive transformation is possible.
 
-## Build reproducibility
+Signed package-managed boot assets are also upgrade state. An upgrade must replace stale package-managed TFTP copies with the package-owned validated bytes while refusing unsafe symlink/non-regular destinations.
+
+## Build reproducibility and external release material
 
 CI must build the `.deb` from repository source. The package version and embedded application version must both be deterministic derivations of `VERSION` and CI must verify the expected mapping.
+
+The Secure Boot bundle is externally released signed material rather than source compiled inside AegisPXE. Its identity is therefore pinned by release tag, exact upstream commit, GitHub release-asset SHA-256/size and per-file package-manifest hashes. Build failure is preferable to consuming release material whose identity can no longer be proven.
 
 Before an artifact may be published, CI must inspect at least:
 
@@ -135,7 +186,11 @@ Before an artifact may be published, CI must inspect at least:
 - ownership/mode expectations for security-sensitive paths,
 - required systemd units,
 - package dependency metadata,
-- embedded application version.
+- embedded application version,
+- Secure Boot manifest and signed EFI files,
+- PE signature-table presence,
+- package/TFTP byte equality after installation,
+- runtime Secure Boot asset-validation status.
 
 A package that builds but does not install cleanly in a fresh supported VM is not considered valid.
 
@@ -149,6 +204,8 @@ Starting with the first executable milestone, CI/E2E must include a clean-packag
 4. exercise the milestone's functionality,
 5. upgrade from the previous development package once upgrades become relevant,
 6. remove the package and verify that persistent state is not unexpectedly destroyed.
+
+For Secure Boot the package-smoke lane additionally verifies the signed bundle, health-report policy, TFTP materialization and stale-asset repair. It is necessary but not sufficient for the security claim. The real OVMF/UEFI positive and negative Secure Boot E2E matrix remains mandatory before merge/release.
 
 ## Release principle
 
