@@ -54,32 +54,47 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y sbsigntool
+
           bash scripts/build-deb.sh
           deb="$(find dist -maxdepth 1 -name 'aegispxe_*.deb' -print -quit)"
           test -n "$deb"
 
-          sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "./$deb"
 
           test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(bash scripts/version.sh project)"
           test ! -e /usr/lib/aegispxe/reporters/aegispxe-reporter-amd64
+          test -f /usr/lib/aegispxe/secureboot/manifest.json
+          test -f /usr/lib/aegispxe/secureboot/ipxe-shim.efi
+          test -f /usr/lib/aegispxe/secureboot/ipxe.efi
+          sbverify --list /usr/lib/aegispxe/secureboot/ipxe-shim.efi 2>&1 | grep -qi signature
+          sbverify --list /usr/lib/aegispxe/secureboot/ipxe.efi 2>&1 | grep -qi signature
+
           sudo systemctl is-active --quiet aegispxe.service
-          curl --fail --silent http://127.0.0.1:8090/healthz | grep -Fq '"status":"ok"'
+          health="$(curl --fail --silent http://127.0.0.1:8090/healthz)"
+          grep -Fq '"status":"ok"' <<<"$health"
+          grep -Fq '"secure_boot_policy":"required"' <<<"$health"
+          grep -Fq '"secure_boot_assets_valid":true' <<<"$health"
 
           . /etc/default/tftpd-hpa
+          test -f "$TFTP_DIRECTORY/ipxe-shim.efi"
           test -f "$TFTP_DIRECTORY/ipxe.efi"
           test -f "$TFTP_DIRECTORY/undionly.kpxe"
-          cmp -s /usr/lib/ipxe/ipxe.efi "$TFTP_DIRECTORY/ipxe.efi"
+          cmp -s /usr/lib/aegispxe/secureboot/ipxe-shim.efi "$TFTP_DIRECTORY/ipxe-shim.efi"
+          cmp -s /usr/lib/aegispxe/secureboot/ipxe.efi "$TFTP_DIRECTORY/ipxe.efi"
           cmp -s /usr/lib/ipxe/undionly.kpxe "$TFTP_DIRECTORY/undionly.kpxe"
 
           printf 'stale-aegispxe-asset\n' | sudo tee "$TFTP_DIRECTORY/ipxe.efi" >/dev/null
           sudo /usr/lib/aegispxe/install-pxe-assets
-          cmp -s /usr/lib/ipxe/ipxe.efi "$TFTP_DIRECTORY/ipxe.efi"
+          cmp -s /usr/lib/aegispxe/secureboot/ipxe.efi "$TFTP_DIRECTORY/ipxe.efi"
 
           decision="$(curl --fail --silent --get \
             --data-urlencode 'mac=52:54:00:12:34:56' \
             --data-urlencode 'smbios_uuid=11111111-2222-3333-4444-555555555555' \
             --data-urlencode 'architecture=x86_64' \
             --data-urlencode 'firmware=efi' \
+            --data-urlencode 'secure_boot=01' \
+            --data-urlencode 'setup_mode=00' \
             http://127.0.0.1:8090/api/v1/discovery.ipxe)"
           grep -Fq 'pending_approval' <<<"$decision"
