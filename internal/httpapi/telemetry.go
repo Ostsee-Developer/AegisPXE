@@ -24,12 +24,12 @@ func (s *Server) registerTelemetry(mux *http.ServeMux) {
 }
 
 type telemetryEventRequest struct {
-	Stage      lifecycle.Stage     `json:"stage"`
-	Source     lifecycle.Source    `json:"source"`
-	ClientTime string              `json:"client_time,omitempty"`
-	Message    string              `json:"message,omitempty"`
-	ErrorCode  string              `json:"error_code,omitempty"`
-	Metadata   map[string]string   `json:"metadata,omitempty"`
+	Stage      lifecycle.Stage   `json:"stage"`
+	Source     lifecycle.Source  `json:"source"`
+	ClientTime string            `json:"client_time,omitempty"`
+	Message    string            `json:"message,omitempty"`
+	ErrorCode  string            `json:"error_code,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 type telemetryLogRequest struct {
