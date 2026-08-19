@@ -3,7 +3,6 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -51,6 +50,10 @@ func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *ht
 	kernelURL := prefix + "/artifacts/linux"
 	initrdURL := prefix + "/artifacts/initrd.gz"
 	overlayURL := prefix + "/overlay.cpio"
+	initrdArgument := ""
+	if material.Machine.Firmware == "efi" {
+		initrdArgument = " initrd=initrd.magic"
+	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -60,9 +63,9 @@ func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *ht
 	// Do not depend on iPXE's per-file magic-initrd injection support. Older
 	// packaged iPXE builds can boot Debian's native initrd but cannot reliably
 	// synthesize executable files/directories from initrd command arguments.
-	// We therefore load two real initramfs archives and explicitly expose the
-	// resulting aggregate as initrd.magic to the UEFI Linux stub.
-	_, _ = fmt.Fprintf(w, "kernel %s initrd=initrd.magic%s || goto boot_failed\n", kernelURL, args)
+	// We therefore load two real initramfs archives. On UEFI, initrd.magic
+	// explicitly exposes the aggregate to the Linux EFI stub.
+	_, _ = fmt.Fprintf(w, "kernel %s%s%s || goto boot_failed\n", kernelURL, initrdArgument, args)
 	_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", initrdURL)
 	// The overlay is deliberately the final network object. It contains the
 	// reporter, non-secret reporter config and preseed.cfg, and its successful
@@ -252,5 +255,3 @@ func readReporterBinary() ([]byte, error) {
 	}
 	return content, nil
 }
-
-var _ io.Reader
