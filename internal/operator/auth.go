@@ -24,6 +24,7 @@ const (
 	SessionDuration   = 8 * time.Hour
 	loginWindow       = time.Minute
 	maxLoginAttempts  = 5
+	maxActiveSessions = 1024
 )
 
 type Session struct {
@@ -140,6 +141,9 @@ func (m *Manager) issueSession(base Session) (string, Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cleanupLocked(now)
+	if len(m.sessions) >= maxActiveSessions {
+		return "", Session{}, errors.New("too many active operator sessions")
+	}
 
 	token, err := randomToken(sessionTokenBytes)
 	if err != nil {
