@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type Policy string
@@ -15,6 +16,7 @@ const (
 	PolicyLocal     Policy = "local"
 	PolicyProvision Policy = "provision"
 	PolicyBlocked   Policy = "blocked"
+	MaxNicknameRunes       = 80
 )
 
 type IdentifierKind string
@@ -38,6 +40,7 @@ type Observation struct {
 
 type Machine struct {
 	ID           string
+	Nickname     string
 	Policy       Policy
 	Architecture string
 	Firmware     string
@@ -46,6 +49,19 @@ type Machine struct {
 }
 
 var smbiosUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+func NormalizeNickname(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if len([]rune(value)) > MaxNicknameRunes {
+		return "", errors.New("machine nickname is too long")
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return "", errors.New("machine nickname contains control characters")
+		}
+	}
+	return value, nil
+}
 
 func (o Observation) Identifiers() ([]Identifier, error) {
 	var out []Identifier
