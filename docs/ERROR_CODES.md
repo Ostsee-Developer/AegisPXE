@@ -16,7 +16,7 @@ Examples:
 - `DRV001_DRIVER_SPEC_UNSUPPORTED`
 - `INS003_INSTALLATION_ASSIGNMENT_INVALID`
 - `SEC001_CRYPTOGRAPHIC_BOOT_TRUST_REQUIRED`
-- `VAL001_VALIDATION_FAILED`
+- `VAL001_FIRST_BOOT_VALIDATION_FAILED`
 
 ## Namespaces
 
@@ -57,12 +57,36 @@ Examples:
 | `INS003_INSTALLATION_ASSIGNMENT_INVALID` | An assignment request violates Machine approval, InstallationSpec ownership or assignment state rules. |
 | `INS004_INSTALLATION_ASSIGNMENT_CONFLICT` | A Machine already has a different armed Installation assignment. |
 | `INS005_INSTALLATION_ASSIGNMENT_NOT_FOUND` | No assignment exists for the requested Installation or active Machine lookup. |
-| `SEC001_CRYPTOGRAPHIC_BOOT_TRUST_REQUIRED` | The requested secret-bearing provisioning operation requires cryptographic machine/boot proof that has not been established. |
-| `SEC002_OPERATOR_AUTHENTICATION_FAILED` | The bootstrap operator credential was absent or invalid without disclosing which part failed. |
-| `SEC003_OPERATOR_AUTH_RATE_LIMITED` | The remote exceeded the bounded bootstrap operator login-attempt window. |
+| `INS006_INSTALLER_TELEMETRY_INVALID` | An installer/reporter telemetry request violates body, stage, source, idempotency or other validation rules. |
+| `INS007_INSTALLER_TELEMETRY_CONFLICT` | Telemetry would regress/skip lifecycle state, reuse an idempotency key inconsistently, or conflict with already accepted state. |
+| `INS008_INSTALLER_LOG_LIMIT_EXCEEDED` | An installation log upload exceeded the bounded per-chunk or per-installation limit. |
+| `INS101_DEBIAN_BASE_INSTALL_FAILED` | Debian Installer reported failure of its native `bootstrap-base` step. |
+| `INS102_DEBIAN_PROFILE_INSTALL_FAILED` | Debian Installer reported failure of its native `pkgsel` step. |
+| `INS103_DEBIAN_BOOTLOADER_FAILED` | Debian Installer reported failure of its native GRUB installation step. |
+| `INS104_HARDENING_FAILED` | The AegisPXE Debian late-command/hardening transaction aborted before successful completion. |
+| `SEC001_CRYPTOGRAPHIC_BOOT_TRUST_REQUIRED` | A secret-bearing provisioning operation requires cryptographic machine/boot proof that has not been established. |
+| `SEC002_OPERATOR_AUTHENTICATION_FAILED` | Bootstrap/recovery operator authentication failed without disclosing which credential detail was wrong. |
+| `SEC003_OPERATOR_AUTH_RATE_LIMITED` | The remote exceeded the bounded operator authentication-attempt window. |
 | `SEC004_OPERATOR_SESSION_REQUIRED` | An operator mutation was attempted without a valid unexpired server-side session. |
-| `SEC005_OPERATOR_CSRF_INVALID` | An authenticated browser mutation did not present the CSRF value bound to its server-side operator session. |
-| `SEC006_SECURE_OPERATOR_TRANSPORT_REQUIRED` | Operator login or mutation was attempted over an untrusted cleartext network transport. |
+| `SEC005_OPERATOR_CSRF_INVALID` | An authenticated browser mutation did not present the CSRF value bound to its operator session. |
+| `SEC006_SECURE_OPERATOR_TRANSPORT_REQUIRED` | Operator authentication or mutation was attempted over an untrusted cleartext network transport. |
+| `SEC007_OPERATOR_USER_PENDING_REVIEW` | An external operator identity exists but still requires review. |
+| `SEC008_OPERATOR_USER_BLOCKED` | The operator identity is blocked. |
+| `SEC009_OPERATOR_USER_NOT_FOUND` | The requested operator identity does not exist. |
+| `SEC010_OPERATOR_PASSKEY_REQUIRED` | The operation requires a passkey-authenticated operator session. |
+| `SEC011_OPERATOR_PASSKEY_FAILED` | Passkey verification/enrollment failed. |
+| `SEC012_OPERATOR_AUTHORIZATION_DENIED` | The authenticated operator lacks the role required for the operation. |
+| `SEC013_OPERATOR_RECOVERY_FAILED` | Bootstrap/recovery authentication could not safely complete. |
+| `SEC014_OPERATOR_WEBAUTHN_NOT_CONFIGURED` | WebAuthn/passkey configuration required by the requested flow is unavailable. |
+| `SEC015_INSTALLER_CREDENTIAL_REQUIRED` | Installation-scoped runtime authentication material has not been issued or was omitted. |
+| `SEC016_INSTALLER_CREDENTIAL_INVALID` | Installation-scoped Bearer/HMAC authentication did not verify. |
+| `SEC017_INSTALLER_CREDENTIAL_EXPIRED` | Installation runtime authentication expired, was revoked, or used an unacceptable freshness timestamp. |
+| `SEC018_BOOT_TRUST_ENROLLMENT_REQUIRED` | No administrator-approved machine-bound boot-trust key is available for the requested trust operation. |
+| `SEC019_BOOT_TRUST_KEY_INVALID` | A submitted or stored boot-trust public key/binding violates the supported key contract. |
+| `SEC020_BOOT_TRUST_PROOF_INVALID` | The signed boot-trust challenge proof or its binding did not verify. |
+| `SEC021_BOOT_TRUST_CHALLENGE_EXPIRED` | A boot-trust challenge was presented outside its short validity window. |
+| `SEC022_BOOT_TRUST_REPLAY_REJECTED` | A previously consumed boot-trust challenge could not be safely treated as an idempotent retry. |
+| `VAL001_FIRST_BOOT_VALIDATION_FAILED` | The installed OS failed one or more mandatory AegisPXE first-boot validation checks. |
 | `SYS001_STORAGE_FAILURE` | The persistent store could not complete an operation safely. |
 
-The Go registry in `internal/fault` is authoritative for allocated codes. Documentation and source must change together when a new operator-visible code is introduced.
+The Go registry in `internal/fault` is authoritative for service-generated codes. Driver-native `INS1xx` and validation `VAL1xx` codes are part of the documented lifecycle contract and must remain stable once released. Documentation and source must change together when a new operator-visible code is introduced.
