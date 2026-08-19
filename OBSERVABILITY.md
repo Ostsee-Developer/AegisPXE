@@ -25,6 +25,7 @@ Structured logging is mandatory for:
 - database state mutations,
 - artifact resolution/download/verification,
 - boot decision generation,
+- Secure Boot package validation and per-Machine enforcement,
 - driver render operations,
 - seed access decisions,
 - lifecycle event acceptance/rejection,
@@ -66,6 +67,20 @@ Required common fields where applicable:
 - `error_code`
 - `duration_ms`
 
+Security/boot operations add the relevant bounded evidence fields rather than prose-only messages. Secure Boot operations use, where applicable:
+
+- `secure_boot_policy`
+- `secure_boot_state`
+- `firmware`
+- `upstream_release`
+- `upstream_commit`
+- `release_asset_sha256`
+- `ipxe_shim_sha256`
+- `ipxe_sha256`
+- `shim_digest`
+
+Cryptographic digests and public release identities are safe operational metadata. Binary payloads, private keys and secret material are never logged.
+
 Example:
 
 ```json
@@ -79,6 +94,39 @@ Example:
   "driver_id": "debian13",
   "duration_ms": 12,
   "result": "success"
+}
+```
+
+Secure Boot startup example:
+
+```json
+{
+  "level": "INFO",
+  "component": "boot.secureboot",
+  "operation": "validate_assets",
+  "secure_boot_policy": "required",
+  "upstream_release": "v2.0.0",
+  "upstream_commit": "12798ec29aa8a64d8675c4378b99f5fe28447afb",
+  "release_asset_sha256": "sha256:...",
+  "ipxe_shim_sha256": "sha256:...",
+  "ipxe_sha256": "sha256:...",
+  "result": "success"
+}
+```
+
+A required-policy rejection must identify the Machine and stable reason without pretending that a firmware query value is remote attestation:
+
+```json
+{
+  "level": "WARN",
+  "component": "boot.secureboot",
+  "operation": "evaluate",
+  "request_id": "req_01...",
+  "machine_id": "m_01...",
+  "secure_boot_policy": "required",
+  "secure_boot_state": "disabled",
+  "error_code": "SEC023_SECURE_BOOT_REQUIRED",
+  "result": "rejected"
 }
 ```
 
@@ -98,7 +146,7 @@ Logs must not use a MAC address as the sole correlation mechanism.
 
 ### System log
 
-Operational logs from AegisPXE itself: API, database, artifact manager, drivers, helper, worker and boot services.
+Operational logs from AegisPXE itself: API, database, artifact manager, drivers, helper, worker, boot and Secure Boot services.
 
 ### Installation log
 
@@ -118,6 +166,8 @@ Append-only administrative/security events such as:
 
 Audit records must include actor, action, target, timestamp and result.
 
+Secure Boot firmware observations are Machine inventory/security evidence and belong in structured system/security logs and the persisted Machine record. They do not create lifecycle progress.
+
 ## Installer log ingestion
 
 Every production-capable OS driver must define how relevant native installer logs are streamed or uploaded to AegisPXE. Telemetry support is a required driver capability, not an optional enhancement.
@@ -130,6 +180,8 @@ Uploaded log chunks require:
 - bounded payload size,
 - server-side timestamp in addition to client-reported timestamp,
 - redaction before durable persistence where feasible.
+
+The current Debian reporter runtime is suspended from production while its delivery mechanism is redesigned. Secure Boot does not reintroduce it into the native Debian initrd path.
 
 ## Error codes
 
@@ -145,6 +197,12 @@ Errors shown in the UI and lifecycle should include stable codes. Initial namesp
 - `SYS`: AegisPXE internal platform errors.
 
 Example: `ART002_ARTIFACT_HASH_MISMATCH`.
+
+Secure Boot uses:
+
+- `SEC023_SECURE_BOOT_REQUIRED`
+- `SEC024_SECURE_BOOT_EVIDENCE_INVALID`
+- `SEC025_SECURE_BOOT_ASSETS_INVALID`
 
 Codes are API contracts once released. Renaming/removing a code requires an ADR or explicit compatibility decision.
 
@@ -172,6 +230,13 @@ A swallowed operational error is a defect. Operational failures must either:
 
 `|| true`-style suppression is forbidden for meaningful provisioning actions. Best-effort cleanup may ignore a failure only when the code comments and logs explain why that failure cannot affect correctness.
 
+For Secure Boot, failure is explicit and fail-closed when policy is `required`:
+
+- invalid package-owned signed boot assets prevent startup,
+- malformed firmware evidence is rejected,
+- non-enabled/unknown/SetupMode/BIOs state does not authorize destructive installation boot material,
+- no fallback path may silently switch to unsigned network boot while recording success.
+
 ## UI requirement
 
 The Studio must provide installation-scoped views for:
@@ -181,5 +246,7 @@ The Studio must provide installation-scoped views for:
 - installer logs,
 - validation results,
 - audit events relevant to that installation.
+
+Machine views must expose the normalized Secure Boot observation and observation time as security evidence without presenting that value as cryptographic attestation.
 
 Debugging must not depend on SSH access to the AegisPXE host as the primary workflow.
