@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/lifecycle"
@@ -156,5 +155,3 @@ func decodeStrictBytes(body []byte, destination any) error {
 	}
 	return nil
 }
-
-var _ = time.RFC3339Nano
