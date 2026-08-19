@@ -172,7 +172,8 @@ const dashboardRCJS = `
   filter.addEventListener("input", applyFilter);
   new MutationObserver(applyFilter).observe(view, {childList: true});
 
-  fetch("/ui/api/logs/tail", {credentials:"same-origin", headers:{"Accept":"application/json"}})
+  const anchor = Number(view.dataset.after || "0");
+  fetch("/ui/api/logs/tail?before=" + encodeURIComponent(anchor), {credentials:"same-origin", headers:{"Accept":"application/json"}})
     .then(response => response.ok ? response.json() : Promise.reject(new Error("tail unavailable")))
     .then(payload => {
       const fragment = document.createDocumentFragment();
