@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/Ostsee-Developer/AegisPXE/internal/secureboot"
 )
 
 type Policy string
@@ -36,16 +38,20 @@ type Observation struct {
 	SMBIOSUUID   string
 	Architecture string
 	Firmware     string
+	SecureBoot   string
+	SetupMode    string
 }
 
 type Machine struct {
-	ID           string
-	Nickname     string
-	Policy       Policy
-	Architecture string
-	Firmware     string
-	FirstSeen    time.Time
-	LastSeen     time.Time
+	ID                 string
+	Nickname           string
+	Policy             Policy
+	Architecture       string
+	Firmware           string
+	SecureBootState    secureboot.State
+	SecureBootObserved time.Time
+	FirstSeen          time.Time
+	LastSeen           time.Time
 }
 
 var smbiosUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -61,6 +67,10 @@ func NormalizeNickname(value string) (string, error) {
 		}
 	}
 	return value, nil
+}
+
+func (o Observation) SecureBootState() (secureboot.State, error) {
+	return secureboot.Observe(o.Firmware, o.SecureBoot, o.SetupMode)
 }
 
 func (o Observation) Identifiers() ([]Identifier, error) {
