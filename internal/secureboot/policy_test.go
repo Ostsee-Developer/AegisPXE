@@ -15,6 +15,8 @@ func TestObserveSecureBootState(t *testing.T) {
 		{name: "disabled", firmware: "efi", secureBoot: "00", setupMode: "00", want: StateDisabled},
 		{name: "setup mode", firmware: "efi", secureBoot: "00", setupMode: "01", want: StateSetupMode},
 		{name: "unknown", firmware: "efi", want: StateUnknown},
+		{name: "missing setup mode", firmware: "efi", secureBoot: "01", want: StateUnknown},
+		{name: "missing secure boot", firmware: "efi", setupMode: "00", want: StateUnknown},
 		{name: "bios", firmware: "pcbios", want: StateUnsupported},
 		{name: "short values", firmware: "efi", secureBoot: "1", setupMode: "0", want: StateEnabled},
 		{name: "invalid secure boot", firmware: "efi", secureBoot: "ff", setupMode: "00", want: StateUnknown, wantErr: true},
