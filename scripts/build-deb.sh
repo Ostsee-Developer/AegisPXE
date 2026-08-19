@@ -21,6 +21,7 @@ mkdir -p "$OUT_DIR"
 install -d -m 0755 \
   "$PKG_ROOT/DEBIAN" \
   "$PKG_ROOT/usr/lib/aegispxe" \
+  "$PKG_ROOT/usr/lib/aegispxe/reporters" \
   "$PKG_ROOT/etc/aegispxe" \
   "$PKG_ROOT/lib/systemd/system"
 
@@ -29,6 +30,12 @@ GOOS=linux \
 GOARCH="$GOARCH" \
 CGO_ENABLED=0 \
 bash scripts/build.sh >/dev/null
+
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+  go build -trimpath -ldflags='-s -w' \
+  -o "$PKG_ROOT/usr/lib/aegispxe/reporters/aegispxe-reporter-amd64" \
+  ./cmd/aegispxe-reporter
+chmod 0755 "$PKG_ROOT/usr/lib/aegispxe/reporters/aegispxe-reporter-amd64"
 
 install -m 0755 packaging/install-pxe-assets.sh "$PKG_ROOT/usr/lib/aegispxe/install-pxe-assets"
 install -m 0644 packaging/aegispxe.env "$PKG_ROOT/etc/aegispxe/aegispxe.env"

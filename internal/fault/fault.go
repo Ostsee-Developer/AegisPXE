@@ -38,6 +38,11 @@ const (
 	InstallerCredentialRequired     = "SEC015_INSTALLER_CREDENTIAL_REQUIRED"
 	InstallerCredentialInvalid      = "SEC016_INSTALLER_CREDENTIAL_INVALID"
 	InstallerCredentialExpired      = "SEC017_INSTALLER_CREDENTIAL_EXPIRED"
+	BootTrustEnrollmentRequired     = "SEC018_BOOT_TRUST_ENROLLMENT_REQUIRED"
+	BootTrustKeyInvalid             = "SEC019_BOOT_TRUST_KEY_INVALID"
+	BootTrustProofInvalid           = "SEC020_BOOT_TRUST_PROOF_INVALID"
+	BootTrustChallengeExpired       = "SEC021_BOOT_TRUST_CHALLENGE_EXPIRED"
+	BootTrustReplayRejected         = "SEC022_BOOT_TRUST_REPLAY_REJECTED"
 	StorageFailure                  = "SYS001_STORAGE_FAILURE"
 )
 

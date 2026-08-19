@@ -50,6 +50,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "./$deb"
 
           test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(bash scripts/version.sh project)"
+          test -x /usr/lib/aegispxe/reporters/aegispxe-reporter-amd64
           sudo systemctl is-active --quiet aegispxe.service
           curl --fail --silent http://127.0.0.1:8090/healthz | grep -Fq '"status":"ok"'
 

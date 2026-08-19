@@ -73,7 +73,13 @@ func TestSchemaMigrationAddsProvisioningAndOperatorIdentitySchemaWithLogs(t *tes
 	if !tableExistsForTest(t, state.db, "operator_users") || !tableExistsForTest(t, state.db, "operator_credentials") {
 		t.Fatal("operator identity tables were not added")
 	}
-	for _, table := range []string{"installation_lifecycle_credentials", "installation_lifecycle_events", "installation_log_chunks"} {
+	for _, table := range []string{
+		"installation_lifecycle_credentials",
+		"installation_lifecycle_events",
+		"installation_log_chunks",
+		"machine_boot_trust_keys",
+		"installation_boot_trust_challenges",
+	} {
 		if !tableExistsForTest(t, state.db, table) {
 			t.Fatalf("%s table was not added", table)
 		}
@@ -82,10 +88,11 @@ func TestSchemaMigrationAddsProvisioningAndOperatorIdentitySchemaWithLogs(t *tes
 	if !strings.Contains(logText, `"component":"store.schema"`) ||
 		!strings.Contains(logText, `"operation":"migrate"`) ||
 		!strings.Contains(logText, `"from_version":1`) ||
-		!strings.Contains(logText, `"to_version":5`) ||
+		!strings.Contains(logText, `"to_version":6`) ||
 		!strings.Contains(logText, `"assignment_schema_added":true`) ||
 		!strings.Contains(logText, `"operator_identity_schema_added":true`) ||
 		!strings.Contains(logText, `"installer_telemetry_schema_added":true`) ||
+		!strings.Contains(logText, `"boot_trust_schema_added":true`) ||
 		!strings.Contains(logText, `"result":"success"`) {
 		t.Fatalf("migration log missing contract fields: %s", logText)
 	}

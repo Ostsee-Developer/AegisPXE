@@ -81,6 +81,9 @@ func (h *DashboardHandler) registerDashboardRoutes() {
 	h.mux.HandleFunc("GET /ui/installations/{id}", h.dashboardInstallation)
 	h.mux.HandleFunc("POST /ui/installations/{id}/arm", h.dashboardArmInstallation)
 	h.mux.HandleFunc("POST /ui/installations/{id}/cancel", h.dashboardCancelInstallation)
+	h.mux.HandleFunc("GET /ui/installations/{id}/trust", h.dashboardInstallationTrust)
+	h.mux.HandleFunc("POST /ui/installations/{id}/trust/{fingerprint}/approve", h.dashboardApproveBootTrustKey)
+	h.mux.HandleFunc("POST /ui/installations/{id}/trust/{fingerprint}/revoke", h.dashboardRevokeBootTrustKey)
 
 	h.mux.HandleFunc("GET /ui/users", h.dashboardUsers)
 	h.mux.HandleFunc("POST /ui/users/{id}/approve", h.dashboardApproveUser)

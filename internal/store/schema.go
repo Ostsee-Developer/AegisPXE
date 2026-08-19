@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 5
+const currentSchemaVersion = 6
 
 func (s *Store) initialize(ctx context.Context) error {
 	for _, pragma := range []string{
@@ -30,7 +30,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			version INTEGER NOT NULL
 		)`,
 		`INSERT INTO schema_meta(version)
-		 SELECT 5 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
+		 SELECT 6 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
 		`CREATE TABLE IF NOT EXISTS machines (
 			id TEXT PRIMARY KEY,
 			policy TEXT NOT NULL CHECK(policy IN ('pending','local','provision','blocked')),
@@ -162,6 +162,34 @@ func (s *Store) initialize(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_installation_log_chunks_installation
 		 ON installation_log_chunks(installation_id,sequence)`,
+		`CREATE TABLE IF NOT EXISTS machine_boot_trust_keys (
+			fingerprint TEXT PRIMARY KEY,
+			machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE RESTRICT,
+			public_key_pem TEXT NOT NULL,
+			ek_fingerprint TEXT NOT NULL DEFAULT '',
+			state TEXT NOT NULL CHECK(state IN ('pending','approved','revoked')),
+			first_seen_at TEXT NOT NULL,
+			last_seen_at TEXT NOT NULL,
+			approved_at TEXT NOT NULL DEFAULT '',
+			approved_by TEXT NOT NULL DEFAULT '',
+			revoked_at TEXT NOT NULL DEFAULT '',
+			revoked_by TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_machine_boot_trust_keys_machine ON machine_boot_trust_keys(machine_id,state,first_seen_at)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_machine_boot_trust_keys_approved_machine ON machine_boot_trust_keys(machine_id) WHERE state='approved'`,
+		`CREATE TABLE IF NOT EXISTS installation_boot_trust_challenges (
+			id TEXT PRIMARY KEY,
+			installation_id TEXT NOT NULL REFERENCES installation_specs(id) ON DELETE RESTRICT,
+			machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE RESTRICT,
+			key_fingerprint TEXT NOT NULL REFERENCES machine_boot_trust_keys(fingerprint) ON DELETE RESTRICT,
+			nonce BLOB NOT NULL CHECK(length(nonce)=32),
+			created_at TEXT NOT NULL,
+			expires_at TEXT NOT NULL,
+			used_at TEXT NOT NULL DEFAULT '',
+			response_ciphertext BLOB NOT NULL DEFAULT X'',
+			credential_expires_at TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_installation_boot_trust_challenges_installation ON installation_boot_trust_challenges(installation_id,created_at)`,
 	}
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
@@ -205,6 +233,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			"assignment_schema_added", fromVersion < 3,
 			"operator_identity_schema_added", fromVersion < 4,
 			"installer_telemetry_schema_added", fromVersion < 5,
+			"boot_trust_schema_added", fromVersion < 6,
 			"result", "success",
 		)
 	}
