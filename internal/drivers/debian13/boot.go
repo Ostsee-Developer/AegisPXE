@@ -81,6 +81,9 @@ func validateRenderableSpec(spec installation.Spec) error {
 	if err := ValidateSpec(spec); err != nil {
 		return err
 	}
+	if spec.DriverVersion != DriverVersion {
+		return errors.New("legacy Debian driver contract is retained for audit and cleanup but cannot be rendered for a new boot")
+	}
 	if strings.TrimSpace(spec.ID) == "" {
 		return errors.New("installation spec must have a server-assigned ID before driver rendering")
 	}
