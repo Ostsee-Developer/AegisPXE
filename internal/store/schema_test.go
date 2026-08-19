@@ -11,7 +11,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/observability"
 )
 
-func TestSchemaMigrationAddsProvisioningAndOperatorIdentitySchemaWithLogs(t *testing.T) {
+func TestSchemaMigrationAddsProvisioningOperatorTrustAndMachineMetadataWithLogs(t *testing.T) {
 	path := t.TempDir() + "/aegispxe-v1.db"
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -60,12 +60,14 @@ func TestSchemaMigrationAddsProvisioningAndOperatorIdentitySchemaWithLogs(t *tes
 	if version != currentSchemaVersion {
 		t.Fatalf("schema version=%d want=%d", version, currentSchemaVersion)
 	}
-	hasProfileJSON, err := columnExistsForTest(state.db, "installation_specs", "profile_json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasProfileJSON {
-		t.Fatal("profile_json column was not added")
+	for table, column := range map[string]string{"installation_specs": "profile_json", "machines": "nickname"} {
+		hasColumn, err := columnExistsForTest(state.db, table, column)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasColumn {
+			t.Fatalf("%s.%s column was not added", table, column)
+		}
 	}
 	if !tableExistsForTest(t, state.db, "installation_assignments") {
 		t.Fatal("installation_assignments table was not added")
@@ -88,7 +90,8 @@ func TestSchemaMigrationAddsProvisioningAndOperatorIdentitySchemaWithLogs(t *tes
 	if !strings.Contains(logText, `"component":"store.schema"`) ||
 		!strings.Contains(logText, `"operation":"migrate"`) ||
 		!strings.Contains(logText, `"from_version":1`) ||
-		!strings.Contains(logText, `"to_version":6`) ||
+		!strings.Contains(logText, `"to_version":7`) ||
+		!strings.Contains(logText, `"machine_nickname_column_added":true`) ||
 		!strings.Contains(logText, `"assignment_schema_added":true`) ||
 		!strings.Contains(logText, `"operator_identity_schema_added":true`) ||
 		!strings.Contains(logText, `"installer_telemetry_schema_added":true`) ||
