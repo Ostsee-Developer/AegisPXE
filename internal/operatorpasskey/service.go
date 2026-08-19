@@ -16,8 +16,11 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
-const flowTokenBytes = 32
-const flowLifetime = 5 * time.Minute
+const (
+	flowTokenBytes = 32
+	flowLifetime   = 5 * time.Minute
+	maxActiveFlows = 256
+)
 
 type Mode string
 
@@ -146,6 +149,9 @@ func (s *Service) saveFlow(userID string, mode Mode, session webauthn.SessionDat
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cleanupLocked(now)
+	if len(s.flows) >= maxActiveFlows {
+		return "", errors.New("too many active passkey ceremonies")
+	}
 	s.flows[sha256.Sum256([]byte(token))] = flow{UserID: userID, Mode: mode, Session: session, ExpiresAt: now.Add(flowLifetime)}
 	return token, nil
 }
