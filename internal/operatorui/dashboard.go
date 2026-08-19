@@ -73,14 +73,17 @@ func (h *DashboardHandler) registerDashboardRoutes() {
 
 	h.mux.HandleFunc("GET /ui/machines", h.dashboardMachines)
 	h.mux.HandleFunc("GET /ui/machines/{id}", h.dashboardMachine)
+	h.mux.HandleFunc("GET /ui/machines/{id}/manage", h.dashboardMachineManagement)
 	h.mux.HandleFunc("POST /ui/machines/{id}/policy", h.dashboardMachinePolicy)
 	h.mux.HandleFunc("POST /ui/machines/{id}/nickname", h.dashboardMachineNickname)
 	h.mux.HandleFunc("POST /ui/machines/{id}/delete", h.dashboardDeleteMachine)
+	h.mux.HandleFunc("GET /ui/api/machine-metadata", h.dashboardMachineMetadata)
 
 	h.mux.HandleFunc("GET /ui/installations", h.dashboardInstallations)
 	h.mux.HandleFunc("GET /ui/installations/new", h.dashboardInstallationWizard)
 	h.mux.HandleFunc("POST /ui/installations", h.dashboardCreateInstallation)
 	h.mux.HandleFunc("GET /ui/installations/{id}", h.dashboardInstallation)
+	h.mux.HandleFunc("GET /ui/installations/{id}/manage", h.dashboardInstallationManagement)
 	h.mux.HandleFunc("POST /ui/installations/{id}/arm", h.dashboardArmInstallation)
 	h.mux.HandleFunc("POST /ui/installations/{id}/cancel", h.dashboardCancelInstallation)
 	h.mux.HandleFunc("POST /ui/installations/{id}/delete", h.dashboardDeleteInstallation)
