@@ -236,7 +236,7 @@ func (h *DashboardHandler) setDashboardSessionCookie(w http.ResponseWriter, r *h
 		Value:    token,
 		Path:     "/ui/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   secureTransport(r),
 		SameSite: http.SameSiteStrictMode,
 		Expires:  session.ExpiresAt,
 		MaxAge:   int(operator.SessionDuration.Seconds()),
@@ -249,7 +249,7 @@ func (h *DashboardHandler) clearDashboardSessionCookie(w http.ResponseWriter, r 
 		Value:    "",
 		Path:     "/ui/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   secureTransport(r),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
