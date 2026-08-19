@@ -231,12 +231,16 @@ func (h *DashboardHandler) dashboardAuthRejected(r *http.Request, operation, cod
 }
 
 func (h *DashboardHandler) setDashboardSessionCookie(w http.ResponseWriter, r *http.Request, token string, session operator.Session) {
+	// Trusted-proxy requests are cloned with synthetic TLS state before they
+	// reach the Dashboard, so r.TLS!=nil correctly marks the browser-facing
+	// HTTPS path. Loopback recovery is intentionally allowed over local HTTP;
+	// marking that cookie Secure would make browsers refuse to send it back.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/ui/",
 		HttpOnly: true,
-		Secure:   secureTransport(r),
+		Secure:   r.TLS != nil,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  session.ExpiresAt,
 		MaxAge:   int(operator.SessionDuration.Seconds()),
@@ -249,7 +253,7 @@ func (h *DashboardHandler) clearDashboardSessionCookie(w http.ResponseWriter, r 
 		Value:    "",
 		Path:     "/ui/",
 		HttpOnly: true,
-		Secure:   secureTransport(r),
+		Secure:   r.TLS != nil,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
