@@ -20,9 +20,9 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$OUTPUT"
 
 curl_common=(--fail --silent --show-error --location --proto '=https' --tlsv1.2 --retry 3 --retry-all-errors)
-"${curl_common[@]}" -H 'Accept: application/vnd.github+json' \
+curl "${curl_common[@]}" -H 'Accept: application/vnd.github+json' \
   "${API_BASE}/releases/tags/${RELEASE}" > "$work/release.json"
-"${curl_common[@]}" -H 'Accept: application/vnd.github+json' \
+curl "${curl_common[@]}" -H 'Accept: application/vnd.github+json' \
   "${API_BASE}/commits/${RELEASE}" > "$work/commit.json"
 
 python3 - "$work/release.json" "$work/commit.json" "$work/release.env" <<'PY'
@@ -64,7 +64,7 @@ PY
 
 # shellcheck disable=SC1090
 source "$work/release.env"
-"${curl_common[@]}" "$DOWNLOAD" -o "$work/$ASSET"
+curl "${curl_common[@]}" "$DOWNLOAD" -o "$work/$ASSET"
 actual_size="$(stat -c %s "$work/$ASSET")"
 actual_digest="sha256:$(sha256sum "$work/$ASSET" | awk '{print $1}')"
 if [[ "$actual_size" != "$ASSET_SIZE" || "$actual_digest" != "$ASSET_DIGEST" ]]; then
