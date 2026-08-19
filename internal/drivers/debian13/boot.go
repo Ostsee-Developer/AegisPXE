@@ -24,7 +24,7 @@ func ValidateSpec(spec installation.Spec) error {
 		return errors.New("installation target is not Debian 13 amd64")
 	}
 	if spec.Storage.Mode != "whole-disk" || spec.Storage.Filesystem != "ext4" || spec.Storage.Encrypted || spec.Storage.TPM2 {
-		return errors.New("Debian 13 driver v1 supports only unencrypted whole-disk ext4 storage")
+		return errors.New("Debian 13 driver v2 supports only unencrypted whole-disk ext4 storage")
 	}
 	if spec.Security.RootLogin || spec.Security.SSHPasswordAuthentication || !spec.Security.AutomaticSecurityUpdates {
 		return errors.New("Debian 13 Standard requires root login disabled, SSH password authentication disabled, and automatic security updates enabled")
@@ -32,8 +32,8 @@ func ValidateSpec(spec installation.Spec) error {
 	if !spec.Profile.Admin.PasswordlessSudo {
 		return errors.New("Debian 13 Standard requires passwordless sudo for the key-only administrator")
 	}
-	if len(spec.Artifacts) != 2 {
-		return errors.New("Debian 13 boot requires exactly kernel and initrd artifacts")
+	if len(spec.Artifacts) != 3 {
+		return errors.New("Debian 13 Secure Boot driver requires exactly kernel, initrd and signed shim artifacts")
 	}
 
 	kernel, err := requiredArtifact(spec, "linux")
@@ -44,17 +44,26 @@ func ValidateSpec(spec installation.Spec) error {
 	if err != nil {
 		return err
 	}
-	if kernel.Version != initrd.Version {
-		return errors.New("Debian kernel and initrd are pinned to different installer versions")
+	shim, err := requiredArtifact(spec, "bootnetx64.efi")
+	if err != nil {
+		return err
 	}
-	if kernel.Provenance != initrd.Provenance {
-		return errors.New("Debian kernel and initrd have different provenance")
+	for _, item := range []installation.Artifact{initrd, shim} {
+		if kernel.Version != item.Version {
+			return errors.New("Debian Secure Boot artifacts are pinned to different installer versions")
+		}
+		if kernel.Provenance != item.Provenance {
+			return errors.New("Debian Secure Boot artifacts have different provenance")
+		}
 	}
 	if err := validateDebianArtifactSource(kernel, "netboot/debian-installer/amd64/linux"); err != nil {
 		return fmt.Errorf("kernel artifact source is invalid: %w", err)
 	}
 	if err := validateDebianArtifactSource(initrd, "netboot/debian-installer/amd64/initrd.gz"); err != nil {
 		return fmt.Errorf("initrd artifact source is invalid: %w", err)
+	}
+	if err := validateDebianArtifactSource(shim, "netboot/debian-installer/amd64/bootnetx64.efi"); err != nil {
+		return fmt.Errorf("Secure Boot shim artifact source is invalid: %w", err)
 	}
 	return nil
 }
