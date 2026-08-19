@@ -2,6 +2,7 @@
 set -eu
 
 CONFIG="${AEGISPXE_TFTPD_CONFIG:-/etc/default/tftpd-hpa}"
+SECURE_BOOT_DIR="${AEGISPXE_SECURE_BOOT_ASSET_DIR:-/usr/lib/aegispxe/secureboot}"
 
 log() {
   printf 'aegispxe: %s\n' "$*" >&2
@@ -42,6 +43,14 @@ if [ -z "$root" ] || [ "$root" = "/" ]; then
   exit 1
 fi
 
+case "$SECURE_BOOT_DIR" in
+  /*) ;;
+  *)
+    log "refusing non-absolute Secure Boot asset directory '$SECURE_BOOT_DIR'"
+    exit 1
+    ;;
+esac
+
 install -d -m 0755 "$root"
 
 materialize() {
@@ -49,8 +58,8 @@ materialize() {
   target_name="$2"
   target_file="$root/$target_name"
 
-  if [ ! -r "$source_file" ] || [ ! -f "$source_file" ]; then
-    log "required iPXE asset missing: $source_file"
+  if [ -L "$source_file" ] || [ ! -r "$source_file" ] || [ ! -f "$source_file" ]; then
+    log "required PXE asset missing or unsafe: $source_file"
     return 1
   fi
 
@@ -81,5 +90,12 @@ materialize() {
   log "refreshed package-managed $target_name in $root"
 }
 
-materialize /usr/lib/ipxe/ipxe.efi ipxe.efi
+# UEFI Secure Boot must enter through the official Microsoft-trusted iPXE
+# shim. That shim loads the correspondingly named signed iPXE second stage.
+materialize "$SECURE_BOOT_DIR/ipxe-shim.efi" ipxe-shim.efi
+materialize "$SECURE_BOOT_DIR/ipxe.efi" ipxe.efi
+
+# BIOS remains supported for local/non-Secure-Boot policy modes. The Debian
+# 13 Secure Boot provisioning policy will never authorize BIOS provisioning
+# when AEGISPXE_SECURE_BOOT_POLICY=required.
 materialize /usr/lib/ipxe/undionly.kpxe undionly.kpxe
