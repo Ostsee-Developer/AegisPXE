@@ -26,7 +26,7 @@ func TestStudioListenerRequiresTrustedProxyOutsideLoopback(t *testing.T) {
 	}
 }
 
-func TestPXESurfaceExposesBootButNotStudio(t *testing.T) {
+func TestPXESurfaceExposesOnlyProvenBootAndDiscovery(t *testing.T) {
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -39,17 +39,28 @@ func TestPXESurfaceExposesBootButNotStudio(t *testing.T) {
 			t.Fatalf("PXE path %q status=%d want=%d", path, rec.Code, http.StatusNoContent)
 		}
 	}
-	for _, path := range []string{"/", "/ui/", "/ui/operator/", "/api/v1/machines"} {
+	for _, path := range []string{
+		"/",
+		"/ui/",
+		"/ui/operator/",
+		"/api/v1/machines",
+		"/api/v1/installations/i_test/reporter/events",
+		"/api/v1/installations/i_test/reporter/logs",
+		"/api/v1/installations/i_test/trust/enroll",
+		"/api/v1/installations/i_test/trust/status",
+		"/api/v1/installations/i_test/trust/challenge",
+		"/api/v1/installations/i_test/trust/prove",
+	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
-			t.Fatalf("non-PXE path %q status=%d want=404", path, rec.Code)
+			t.Fatalf("non-production PXE path %q status=%d want=404", path, rec.Code)
 		}
 	}
 }
 
-func TestStudioSurfaceHidesBootAndUsesUnifiedDashboardAsRoot(t *testing.T) {
+func TestStudioSurfaceHidesBootAndSessionlessCoreInventory(t *testing.T) {
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -62,7 +73,7 @@ func TestStudioSurfaceHidesBootAndUsesUnifiedDashboardAsRoot(t *testing.T) {
 		t.Fatalf("studio root status=%d location=%q", rec.Code, rec.Header().Get("Location"))
 	}
 
-	for _, path := range []string{"/ui/", "/ui/operator/", "/ui/machines/m_test", "/api/v1/machines", "/healthz"} {
+	for _, path := range []string{"/ui/", "/ui/operator/", "/ui/machines/m_test", "/healthz"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -70,12 +81,12 @@ func TestStudioSurfaceHidesBootAndUsesUnifiedDashboardAsRoot(t *testing.T) {
 			t.Fatalf("Studio path %q status=%d want=%d", path, rec.Code, http.StatusNoContent)
 		}
 	}
-	for _, path := range []string{"/boot/discovery.ipxe", "/api/v1/discovery.ipxe"} {
+	for _, path := range []string{"/boot/discovery.ipxe", "/api/v1/discovery.ipxe", "/api/v1/machines", "/api/v1/machines/m_test"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
-			t.Fatalf("boot path %q leaked onto Studio listener with status=%d", path, rec.Code)
+			t.Fatalf("non-Studio path %q leaked onto Studio listener with status=%d", path, rec.Code)
 		}
 	}
 }

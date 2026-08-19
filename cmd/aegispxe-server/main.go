@@ -170,31 +170,15 @@ func newHTTPServer(address string, handler http.Handler) *http.Server {
 func pxeSurface(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/healthz" || strings.HasPrefix(path, "/boot/") || path == "/api/v1/discovery" || path == "/api/v1/discovery.ipxe" || installerPXEAPIPath(path) {
+		// dev.21 exposes only the E2E-proven PXE transport. Trust/reporter APIs
+		// remain compiled for isolated tests but are unreachable from production
+		// listeners until reporter delivery is proven on the real UEFI/vTPM path.
+		if path == "/healthz" || strings.HasPrefix(path, "/boot/") || path == "/api/v1/discovery" || path == "/api/v1/discovery.ipxe" {
 			next.ServeHTTP(w, r)
 			return
 		}
 		http.NotFound(w, r)
 	})
-}
-
-func installerPXEAPIPath(path string) bool {
-	if !strings.HasPrefix(path, "/api/v1/installations/") {
-		return false
-	}
-	for _, suffix := range []string{
-		"/reporter/events",
-		"/reporter/logs",
-		"/trust/enroll",
-		"/trust/status",
-		"/trust/challenge",
-		"/trust/prove",
-	} {
-		if strings.HasSuffix(path, suffix) {
-			return true
-		}
-	}
-	return false
 }
 
 func studioSurface(next http.Handler) http.Handler {
@@ -204,7 +188,10 @@ func studioSurface(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
 			return
 		}
-		if path == "/healthz" || strings.HasPrefix(path, "/ui/") || path == "/api/v1/machines" || strings.HasPrefix(path, "/api/v1/machines/") {
+		// Inventory and mutations live behind the authenticated /ui surface.
+		// Do not expose the legacy read-only core machine API merely because the
+		// direct source is a trusted proxy; source trust is not a user session.
+		if path == "/healthz" || strings.HasPrefix(path, "/ui/") {
 			next.ServeHTTP(w, r)
 			return
 		}

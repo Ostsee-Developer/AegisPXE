@@ -2,20 +2,30 @@
 
 AegisPXE provisions privileged systems over a network. Security properties therefore belong to the architecture, not to optional hardening profiles.
 
+## Current implementation status
+
+The `0.1.0-dev.21` stabilization line intentionally separates **implemented security primitives** from **E2E-proven production paths**.
+
+- Debian 13 provisioning uses the last real-VM-proven kernel + Debian initrd + Preseed boot contract.
+- The TPM boot-trust, signed reporter telemetry, credential-release and reporter source code remain available for isolated tests and further design work.
+- The failed reporter/initramfs injection experiments from dev.14 through dev.20 are not registered in the production boot handler and the reporter binary is not shipped in the production `.deb`.
+- No runtime reporter path is considered production-ready until a redesigned delivery mechanism passes the real UEFI/vTPM E2E gate.
+- Secure Boot is not yet an implemented or claimed property of the 0.1.0 Debian provisioning path.
+
+AegisPXE must not advertise a trust, telemetry or Secure Boot property merely because its underlying primitives compile or pass unit tests.
+
 ## Trust boundaries
 
 Primary boundaries:
 
 - firmware/PXE client to AegisPXE boot service,
 - installer/reporter to AegisPXE API,
-- browser/CLI administrator to AegisPXE server,
-- trusted reverse proxy/SSO to the AegisPXE Studio listener,
-- unprivileged server/worker to privileged helper,
+- browser administrator to AegisPXE Studio,
+- trusted reverse proxy/SSO to the Studio listener,
 - AegisPXE to upstream artifact sources,
-- AegisPXE to local secret storage.
+- AegisPXE to local persistent state and secret material.
 
-A MAC address is an identifier, not an authentication factor.
-An SMBIOS UUID is likewise an identifier and must not be used as an authentication factor.
+A MAC address is an identifier, not an authentication factor. An SMBIOS UUID is likewise an identifier and must not be used as an authentication factor.
 
 ## Provisioning trust layers
 
@@ -24,111 +34,106 @@ Provisioning trust is layered and must not collapse identification, authorizatio
 1. **Discovery identity** resolves observations such as MAC/SMBIOS UUID to a Machine record. It provides no secret-bearing authority.
 2. **Operator approval** is represented by explicit provisioning intent for that Machine. It authorizes scheduling but does not authenticate a later network client.
 3. **Armed assignment** binds one Machine to one immutable InstallationSpec. At most one assignment may be armed for a Machine at a time.
-4. **Cryptographic boot trust** proves possession of an explicitly enrolled machine-bound key with freshness/replay protection before secret release.
+4. **Cryptographic boot trust** is the separate proof required before secret release. Its TPM-bound primitives exist, but their Debian runtime delivery remains suspended until E2E-proven.
 
-Operator approval plus an armed assignment may authorize delivery of non-secret public boot material. Lifecycle credential release and authenticated runtime telemetry additionally require cryptographic boot trust.
-
-The Debian 13 reporter implements the first cryptographic boot-trust mode as explicit enrollment of a TPM 2.0-resident RSA key followed by short-lived signed challenges. A newly observed key is not trusted automatically and requires explicit administrator approval. See ADR 0007.
-
-This mode is TPM-bound explicit enrollment, not manufacturer-chain remote attestation. EK certificate-chain verification and measured-boot PCR quotes remain future hardening work. A non-TPM fallback must be a separately reviewed explicit security mode and must never be selected silently.
+Operator approval plus an armed assignment may authorize delivery of non-secret public boot material. Secret-bearing operations must never be authorized solely from discovery identifiers.
 
 See `docs/adr/0003-provisioning-trust-model.md` and `docs/adr/0007-tpm-bound-reporter-trust.md`.
 
-## Least privilege
+## Human authentication and authorization
 
-`aegispxe-server` and normal workers run unprivileged.
+The trusted reverse proxy establishes only the outer source/identity boundary. A proxy identity by itself does not create an AegisPXE session and does not grant an AegisPXE role.
 
-The privileged helper exposes only typed, allowlisted operations that truly require root. It must never provide:
+Normal Studio authentication requires:
 
-- arbitrary command execution,
-- arbitrary shell execution,
-- arbitrary file write paths,
-- arbitrary systemctl commands,
-- arbitrary environment injection.
+1. a request from the explicitly configured trusted proxy boundary,
+2. an AegisPXE user mapped to the asserted external subject,
+3. a successful AegisPXE WebAuthn/Passkey assertion,
+4. an active AegisPXE account and authorized role,
+5. a valid server-side AegisPXE session for subsequent requests.
 
-Every helper action validates its complete input domain and emits an audit/operational log record.
+Emergency recovery requires the separately documented recovery factors. See ADR 0008.
 
-## Installation credentials
+The Studio listener exposes browser administration only under `/ui/` plus `/healthz`. The legacy core `/api/v1/machines` inventory is not exposed on the Studio listener because trusted source address alone is not an authenticated user session.
 
-Each installation has a cryptographically random lifecycle credential scoped to exactly one immutable InstallationSpec. It may authorize only explicitly defined installer operations, such as:
+Every browser mutation requires a valid session and session-bound CSRF token. Destructive deletion additionally requires administrator role and exact-ID confirmation in Studio.
 
-- report lifecycle event,
-- upload installer log chunk,
-- report validation result,
-- fetch secret-bearing installation material if a future driver truly requires it.
+## Trusted reverse-proxy boundary
 
-It must not authorize administrative APIs or access another installation.
+AegisPXE considers forwarded identity/protocol metadata only when the **direct TCP peer** belongs to configured `AEGISPXE_TRUSTED_PROXY_CIDRS`.
 
-The Debian reporter receives the credential only after successful TPM-bound trust proof. AegisPXE returns the raw credential only as RSA-OAEP-SHA256 ciphertext encrypted to the administrator-approved machine key. The reporter decrypts it through TPM 2.0 and keeps plaintext credential material in process memory only.
+The configured protocol header must equal `https`. The configured identity header must be bounded and free of control characters before use.
 
-The installed first-boot finalizer receives only the encrypted ciphertext. It re-derives the same TPM primary key after reboot and decrypts the ciphertext through the TPM. Plaintext lifecycle credential material is not deliberately written to disk.
+The reverse proxy must overwrite or remove client-supplied copies of trusted headers before forwarding.
 
-Credential values must not appear in query strings, public boot scripts, kernel arguments, Preseed content, ordinary logs or audit records.
+A trusted proxy source without an identity may reach the explicit recovery/health transport boundary, but source trust never creates an authenticated AegisPXE user session.
 
-### Reporter request authentication
+See `docs/adr/0004-studio-trusted-proxy.md` and `docs/adr/0008-layered-human-authentication.md`.
 
-The PXE listener may be cleartext HTTP, therefore the reporter does not send the raw lifecycle credential as a Bearer token on that surface.
+## Debian 13 boot and seed security
 
-Reporter requests derive a MAC key as `SHA256(lifecycle_secret)` and authenticate the exact request using HMAC-SHA256 over protocol version, HTTP method, exact path, idempotency key, timestamp and body digest. The server enforces a bounded freshness window before accepting the request.
+The production Debian 13 boot transport is intentionally simple and currently proven by the earlier real-VM installation path:
 
-The cleartext PXE listener exposes only these signed reporter telemetry routes. The older Bearer telemetry handlers remain an internal compatibility surface and are not allowlisted on the PXE listener.
+```text
+verified Debian kernel
+verified Debian initrd.gz
+installation-scoped preseed.cfg injected as /preseed.cfg by iPXE
+boot
+```
 
-The fixed-size lifecycle verifier stored by the server is therefore security-sensitive authentication material even though it is not the raw credential. It must receive the same database access protection as other credential verifiers.
+The rendered Preseed contains desired-state configuration and SSH public keys but no lifecycle credential, reusable administrator password, private key or recovery key.
 
-## Seed security
+Reporter binaries, reporter configuration, custom newc overlays, multi-initrd EFI handoffs and server-side repacked initramfs images are not part of the stabilized production boot path in dev.21.
 
-Seeds are installation-scoped. Fetching or rendering a seed is not equivalent to claiming or starting the installation.
+The Preseed is the final network object in the destructive public handoff. Immediately before returning the rendered Preseed, AegisPXE atomically consumes the armed assignment. This prevents automatic re-entry into the same destructive installation on the next PXE boot.
 
-The Debian 13 Standard driver uses initrd preseeding. Its rendered Preseed contains desired-state configuration and SSH public keys but no lifecycle credential, reusable password, private key or recovery secret. The assignment-gated iPXE script loads the verified Debian initrd, injects the AegisPXE reporter binary and non-secret reporter configuration, then injects the served `preseed.cfg` as `/preseed.cfg` into iPXE's magic initrd. Debian Installer consumes that file as native initrd preseed material.
+Consumption is scheduling state only. It does not mean `INSTALLER_STARTED`, successful installation, validation or cryptographic trust.
 
-The reporter binary, reporter configuration and Preseed are non-secret public boot material. They are available only while the exact InstallationSpec remains armed for an operator-approved Machine. The reporter configuration contains identifiers and API origin only, never lifecycle secret material.
+## Assignment safety
 
-AegisPXE does not use Debian `preseed/url` for this path and does not maintain a custom CPIO/initrd repacker.
+At most one assignment may be armed for one Machine. Arming, consuming and cancelling assignments are audited state transitions.
 
-If a future driver requires secret-bearing seed delivery, that path additionally requires cryptographic boot trust and an explicitly reviewed release mechanism.
+A consumed assignment does not grant future destructive boot authority. A new destructive attempt requires an explicit new assignment decision.
 
-## Boot assignment
+Deletion is deliberately guarded:
 
-Per ADR 0005, an armed assignment is a one-shot destructive boot lease.
+- an InstallationSpec with an `armed` assignment cannot be deleted until the assignment is cancelled,
+- a Machine cannot be deleted while InstallationSpecs still reference it,
+- deletions execute transactionally,
+- correlated runtime state is deleted with its InstallationSpec,
+- a system-level deletion audit event remains after the primary entity history is removed.
 
-Boot script, reporter, reporter configuration, kernel and initrd reads remain retryable and non-consuming. The rendered `preseed.cfg` is intentionally the final network object fetched by the iPXE script. Immediately before AegisPXE returns that Preseed successfully, it atomically transitions the assignment from `armed` to `consumed` and records the assignment-consumption event.
+Machine nicknames are display metadata only. They never replace the immutable Machine ID or discovery identifiers in trust decisions.
 
-Consumption means only that AegisPXE committed the final public boot handoff for the destructive attempt. It does not mean `INSTALLER_STARTED`, successful installation or cryptographic trust.
+## TPM boot-trust primitives
 
-A consumed assignment may complete TPM boot trust for that exact InstallationSpec because reporter execution occurs after the final Preseed handoff. A cancelled assignment must never authorize challenge issuance, proof completion or lifecycle credential release.
+The dormant reporter design creates a deterministic RSA primary key in TPM 2.0 and sends only its public key to AegisPXE. Candidate keys are machine-bound and start as `pending`; an administrator must explicitly approve a candidate before it can authorize a challenge.
 
-At most one assignment may be armed for one Machine. Arming, consuming and cancelling assignments are auditable state mutations.
+The design uses a short-lived challenge bound to installation ID, machine ID, key fingerprint and a random nonce. A verified proof may release a lifecycle credential only as RSA-OAEP-SHA256 ciphertext to the approved key.
 
-## TPM reporter enrollment
+This is TPM-bound explicit enrollment, not manufacturer-chain remote attestation. EK certificate-chain verification and measured-boot PCR quotes remain future hardening work.
 
-The Debian reporter creates a deterministic RSA primary key in TPM 2.0. The private key is not exported by AegisPXE code. Only the PKIX public key is sent to the server.
+Because the runtime delivery path is suspended, these primitives must not be described as active Debian runtime protection yet.
 
-The server:
+## Reporter telemetry primitives
 
-- validates supported key parameters,
-- fingerprints the public key with SHA-256,
-- binds the candidate to the Machine,
-- stores it as `pending`,
-- requires explicit administrator approval before it can authorize a challenge,
-- permits at most one approved boot-trust key per Machine,
-- supports explicit revocation.
+The signed reporter API design does not send the raw lifecycle credential as a Bearer token over the cleartext PXE listener.
 
-The administrator approval step is security-sensitive. Approving the wrong candidate establishes trust in that key. Studio therefore exposes the fingerprint and enrollment state instead of silently auto-approving first contact.
+It derives a request MAC key from the lifecycle credential and authenticates the exact method, path, idempotency key, timestamp and body digest with HMAC-SHA256. The server enforces a bounded timestamp window before accepting a report.
 
-## Boot-trust freshness and replay
+The stored fixed-size verifier is itself authentication material and must receive the same database-access protection as other credential verifiers. Database compromise of verifier material is therefore security-significant.
 
-A trust challenge is bound to:
+The reporter telemetry API remains available for isolated integration testing, but without an E2E-proven reporter delivery path it does not yet make Debian installation lifecycle telemetry production-complete.
 
-- challenge ID,
-- installation ID,
-- machine ID,
-- approved key fingerprint,
-- random 256-bit nonce,
-- short expiry.
+## Artifact integrity
 
-The reporter signs a canonical challenge with the TPM key. The server verifies the signature against the approved public key and current installation/assignment binding before releasing credential ciphertext.
+Provisioning artifacts are identified by cryptographic digest and provenance metadata. A driver may not return an artifact as usable until integrity verification succeeds.
 
-A successful proof cannot mint a second lifecycle credential. Exact retries return the already generated encrypted response. Revoked keys and cancelled installation bindings are rejected.
+A hash mismatch is a hard failure. Existing bytes with the wrong digest must never be reused silently.
+
+The Debian artifact resolver constrains expected origin/path/provenance and verifies downloaded artifact content against the pinned digest.
+
+Upstream signature/checksum verification is used where the driver resolver defines it. Trust verification failures are fail-closed and use stable error codes.
 
 ## Secret handling
 
@@ -139,104 +144,70 @@ Secrets include:
 - private keys,
 - bearer tokens,
 - HMAC authentication material,
-- session credentials,
+- browser session credentials,
 - lifecycle credentials,
-- recovery material.
+- recovery tickets/material.
 
 Secrets must not be placed in:
 
 - normal logs,
-- audit details,
+- audit messages,
 - URLs/query strings,
-- public GRUB/iPXE configuration,
-- machine metadata,
-- error messages.
+- public iPXE configuration,
+- kernel arguments,
+- machine nicknames/metadata,
+- operator-visible error details.
 
-Secret storage is accessed through narrow abstractions. Recovery material is revealed only through an explicit authorized action that itself creates an audit event.
-
-## Artifact integrity
-
-Provisioning artifacts are identified by cryptographic digest and provenance metadata. A driver may not return an artifact as usable until integrity verification succeeds.
-
-A hash mismatch is a hard failure. AegisPXE must never silently use an existing file whose digest does not match the expected artifact identity.
-
-Where upstream signatures or signed checksum metadata are available, drivers/artifact resolvers should verify them in addition to the final digest.
-
-The packaged Debian reporter is part of the trusted AegisPXE package payload. The package build and smoke test must verify that the reporter executable is present at the fixed path served by the boot endpoint.
+The recovery key is stored in a narrowly permissioned regular file and verified constant-time. Browser sessions are server-side and use opaque random tokens.
 
 ## Administrative authorization
 
-The initial role model should remain small. Security-sensitive actions require explicit permission checks, including:
+Security-sensitive operations require explicit permission checks, including:
 
-- approving/blocking/deleting machines,
-- creating/arming/cancelling installations,
-- approving or revoking TPM boot-trust keys,
-- changing profiles,
-- managing other trusted keys,
-- revealing recovery secrets,
-- changing system settings.
+- changing Machine provisioning policy,
+- deleting Machines,
+- creating/arming/cancelling/deleting installations,
+- approving/revoking TPM boot-trust keys,
+- approving/blocking operator users,
+- recovery/bootstrap actions.
 
-All such actions produce audit events.
+Machine nicknames may be changed by authenticated active operators because they are non-authoritative display metadata. Deletion remains admin-only.
 
-### Bootstrap operator boundary
-
-The first Debian vertical path uses a deliberately narrow bootstrap operator mechanism before richer user/RBAC support exists.
-
-- AegisPXE generates a random 256-bit bootstrap operator key under `/var/lib/aegispxe/operator.key` by default.
-- The key file is a regular file with no group/other access; symlinks and unsafe existing permissions are rejected.
-- The key value is not logged and is exchanged for a short-lived server-side session rather than stored in browser storage.
-- Session cookies are HttpOnly and SameSite=Strict. HTTPS/trusted-proxy sessions use the Secure attribute.
-- Every browser mutation requires a CSRF value bound to the server-side session.
-- Login attempts are rate limited.
-- Direct bootstrap login and mutations are refused on cleartext non-loopback network HTTP.
-
-The bootstrap operator does not satisfy Machine/installer trust and does not authorize release of lifecycle credentials merely by existing.
-
-The bootstrap key remains a local/recovery path when a separately authenticated reverse proxy is used for normal Studio access.
-
-### Trusted reverse-proxy Studio boundary
-
-AegisPXE may accept a human operator identity asserted by an explicitly configured reverse proxy/SSO boundary. This does not make arbitrary proxy headers trusted.
-
-The trust decision requires all of the following:
-
-- the **direct TCP peer address** is contained in configured `AEGISPXE_TRUSTED_PROXY_CIDRS`,
-- the configured protocol header has the exact value `https`,
-- the configured identity header contains a bounded non-empty identity.
-
-The identity and protocol header names are deployment configuration. The reverse proxy must overwrite or remove client-supplied instances of these headers before forwarding.
-
-A request outside the configured proxy network cannot gain operator authority by forging the same headers. When Trusted Proxy mode is enabled, the Studio backend accepts only loopback recovery traffic or a request satisfying this trusted-proxy contract.
-
-A trusted proxy identity is exchanged for the same short-lived server-side AegisPXE operator session and CSRF contract as other browser administration. Audit actors are recorded as `proxy:<identity>`. AegisPXE does not need to store the reverse proxy's Passkey/WebAuthn credentials.
-
-Reverse-proxy operator trust is human administrative authentication only. It does not satisfy cryptographic boot trust, authenticate an installer, or directly release lifecycle credentials.
-
-No external Studio hostname or public origin is compiled into the application. See `docs/adr/0004-studio-trusted-proxy.md`.
+The last non-blocked administrator cannot be blocked through the Store contract.
 
 ## Input validation
 
-External identifiers, URLs, filenames, paths, hostnames, MAC addresses, driver IDs, profile values, TPM public keys, signatures, timestamps and telemetry bodies are validated at domain boundaries.
+External identifiers, URLs, filenames, paths, hostnames, MAC addresses, driver IDs, profile values, nicknames, TPM public keys, signatures, timestamps, idempotency keys and telemetry bodies are validated at domain boundaries.
+
+Machine nicknames are trimmed, bounded to 80 Unicode code points and reject control characters.
 
 Path traversal and user-controlled filesystem destinations are forbidden. Internal paths should be constructed from typed IDs and fixed roots.
+
+Request bodies are bounded before parsing on security-sensitive endpoints.
 
 ## Logging and redaction
 
 Security decisions must be logged without logging secrets. See `OBSERVABILITY.md`.
 
-Authentication failures, authorization failures, invalid lifecycle events, replay attempts, assignment conflicts, boot-trust failures and artifact integrity failures require structured security logs with stable error codes.
+Authentication failures, authorization failures, invalid lifecycle events, replay attempts, assignment conflicts, deletion conflicts, boot-trust failures and artifact-integrity failures require structured logs with stable error codes and correlation IDs.
 
-Bootstrap/trusted-proxy operator logs may contain request ID, direct remote address, actor after authentication, decision result and a non-secret cause class. They must never contain the bootstrap key, session cookie or CSRF value.
+The Studio live-log view reads only the already-redacted bounded in-memory log ring. The NDJSON export serves the same redacted stream with an explicit attachment filename and `nosniff` response policy.
 
-Boot-trust logs may contain installation ID, machine ID, public-key fingerprint, challenge ID, decision result and error code. They must never contain lifecycle plaintext, request HMACs or TPM private material.
+Machine nickname logs record whether a nickname exists, not its content, unless the content is intentionally retained in a deletion audit record as non-secret operator metadata.
 
 ## Replay and sequencing
 
-Installation events include an idempotency mechanism. The server rejects invalid state regressions and handles duplicate reports deterministically.
+Installation events use installation-scoped idempotency keys. Lifecycle state must not regress or skip required stages.
 
-A replayed request must not create duplicate state transitions.
+Reporter telemetry authentication includes request freshness. Boot-trust challenges include random freshness material and short expiry.
 
-Cryptographic boot trust uses server-generated freshness/challenge material. Reporter telemetry also includes a freshness timestamp in its authenticated canonical request. Previously valid traffic must not become a new lifecycle transition merely by replay.
+Exact retry behavior must never create a new lifecycle transition or a second raw credential.
+
+## Secure Boot
+
+Secure Boot is a separate release gate. The current production package must not claim that the PXE chain, iPXE binary, Debian kernel or any future reporter delivery path is Secure Boot verified until the complete signed chain is implemented and tested on real UEFI Secure Boot firmware.
+
+No code path may silently disable Secure Boot or downgrade to an unsigned boot path while reporting success.
 
 ## Secure defaults
 
@@ -244,15 +215,16 @@ Defaults favor:
 
 - SSH keys over passwords,
 - root login disabled,
-- minimum necessary exposed services,
+- minimum necessary exposed listener surfaces,
 - verified artifacts,
-- supported/LTS operating systems where available,
+- explicit operator approval for destructive provisioning,
 - explicit TPM key approval over first-contact auto-trust,
-- local boot when there is no explicit provisioning assignment,
-- refusal rather than guessing when state is inconsistent.
+- local boot when there is no armed assignment,
+- refusal rather than guessing when state is inconsistent,
+- removal of unproven runtime components from production packaging.
 
 ## Security changes
 
-Changes to trust boundaries, credential scope, helper permissions, artifact trust, secret handling or authorization require documentation updates and an ADR when the architectural contract changes.
+Changes to trust boundaries, credential scope, package contents, boot transport, helper permissions, artifact trust, secret handling or authorization require documentation updates and an ADR when the architectural contract changes.
 
-A security-relevant behavior change without tests is not mergeable.
+A security-relevant behavior change without focused tests and the appropriate real-VM gate is not mergeable.

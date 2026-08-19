@@ -78,7 +78,7 @@ func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observa
 			s.logger.ErrorContext(ctx, "machine ID allocation failed", "component", "store.machine", "operation", "discover", "request_id", requestID, "error_code", fault.StorageFailure, "error", err)
 			return machine.Machine{}, false, fault.New(fault.StorageFailure, "could not allocate machine identifier", err)
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO machines(id,policy,architecture,firmware,first_seen,last_seen) VALUES(?,?,?,?,?,?)`, machineID, machine.PolicyPending, architecture, firmware, stamp, stamp)
+		_, err = tx.ExecContext(ctx, `INSERT INTO machines(id,nickname,policy,architecture,firmware,first_seen,last_seen) VALUES(?,?,?,?,?,?,?)`, machineID, "", machine.PolicyPending, architecture, firmware, stamp, stamp)
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE machines SET architecture=CASE WHEN ?='' THEN architecture ELSE ? END,
 			firmware=CASE WHEN ?='' THEN firmware ELSE ? END,last_seen=? WHERE id=?`, architecture, architecture, firmware, firmware, stamp, machineID)
@@ -121,7 +121,7 @@ func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observa
 }
 
 func (s *Store) Machine(ctx context.Context, id string) (machine.Machine, error) {
-	result, err := scanMachine(s.db.QueryRowContext(ctx, `SELECT id,policy,architecture,firmware,first_seen,last_seen FROM machines WHERE id=?`, id))
+	result, err := scanMachine(s.db.QueryRowContext(ctx, `SELECT id,nickname,policy,architecture,firmware,first_seen,last_seen FROM machines WHERE id=?`, strings.TrimSpace(id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return machine.Machine{}, fault.New(fault.MachineNotFound, "machine not found", err)
 	}
@@ -131,8 +131,51 @@ func (s *Store) Machine(ctx context.Context, id string) (machine.Machine, error)
 	return result, nil
 }
 
+func (s *Store) SetMachineNickname(ctx context.Context, machineID, nickname, requestID, actor string) (machine.Machine, error) {
+	machineID = strings.TrimSpace(machineID)
+	actor = strings.TrimSpace(actor)
+	if machineID == "" || actor == "" {
+		return machine.Machine{}, fault.New(fault.MachineIdentityInvalid, "machine and actor are required", nil)
+	}
+	nickname, err := machine.NormalizeNickname(nickname)
+	if err != nil {
+		return machine.Machine{}, fault.New(fault.MachineIdentityInvalid, "machine nickname is invalid", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return machine.Machine{}, s.storageError("begin machine nickname update", err)
+	}
+	defer tx.Rollback()
+	current, err := machineByIDTx(ctx, tx, machineID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return machine.Machine{}, fault.New(fault.MachineNotFound, "machine not found", err)
+	}
+	if err != nil {
+		return machine.Machine{}, s.storageError("read machine before nickname update", err)
+	}
+	if current.Nickname == nickname {
+		return current, nil
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE machines SET nickname=? WHERE id=?`, nickname, machineID); err != nil {
+		return machine.Machine{}, s.storageError("persist machine nickname", err)
+	}
+	now := s.now().UTC()
+	if err := appendEventTx(ctx, tx, event.Event{EntityType: event.EntityMachine, EntityID: machineID, Type: event.MachineNicknameChanged, OccurredAt: now, RequestID: requestID, Actor: actor, Message: "machine nickname changed"}); err != nil {
+		return machine.Machine{}, s.storageError("persist machine nickname event", err)
+	}
+	result, err := machineByIDTx(ctx, tx, machineID)
+	if err != nil {
+		return machine.Machine{}, s.storageError("read machine after nickname update", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return machine.Machine{}, s.storageError("commit machine nickname update", err)
+	}
+	s.logger.InfoContext(ctx, "machine nickname changed", "component", "store.machine", "operation", "set_nickname", "request_id", requestID, "machine_id", machineID, "actor", actor, "nickname_set", nickname != "", "result", "success")
+	return result, nil
+}
+
 func machineByIDTx(ctx context.Context, tx *sql.Tx, id string) (machine.Machine, error) {
-	return scanMachine(tx.QueryRowContext(ctx, `SELECT id,policy,architecture,firmware,first_seen,last_seen FROM machines WHERE id=?`, id))
+	return scanMachine(tx.QueryRowContext(ctx, `SELECT id,nickname,policy,architecture,firmware,first_seen,last_seen FROM machines WHERE id=?`, id))
 }
 
 type scanner interface {
@@ -142,7 +185,7 @@ type scanner interface {
 func scanMachine(row scanner) (machine.Machine, error) {
 	var result machine.Machine
 	var firstSeen, lastSeen string
-	if err := row.Scan(&result.ID, &result.Policy, &result.Architecture, &result.Firmware, &firstSeen, &lastSeen); err != nil {
+	if err := row.Scan(&result.ID, &result.Nickname, &result.Policy, &result.Architecture, &result.Firmware, &firstSeen, &lastSeen); err != nil {
 		return machine.Machine{}, err
 	}
 	var err error

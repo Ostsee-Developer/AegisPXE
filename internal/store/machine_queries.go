@@ -7,7 +7,7 @@ import (
 )
 
 func (s *Store) Machines(ctx context.Context) ([]machine.Machine, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,policy,architecture,firmware,first_seen,last_seen FROM machines ORDER BY last_seen DESC, id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,nickname,policy,architecture,firmware,first_seen,last_seen FROM machines ORDER BY last_seen DESC, id`)
 	if err != nil {
 		return nil, s.storageError("query machines", err)
 	}

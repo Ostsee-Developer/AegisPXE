@@ -1,4 +1,4 @@
-# ADR 0005: Layered human authentication and AegisPXE-owned authorization
+# ADR 0008: Layered human authentication and AegisPXE-owned authorization
 
 - Status: Accepted
 - Date: 2026-08-18
@@ -116,4 +116,4 @@ The previous trusted-proxy-to-session shortcut and recovery-key-only web login a
 
 ADR 0004 remains authoritative for listener separation, trusted direct-peer/protocol validation, deployment-configured origins and the separation of human vs installer trust.
 
-ADR 0005 supersedes the parts of ADR 0004 that stated a trusted proxy identity directly creates an AegisPXE operator session or that the local operator key is sufficient for browser login.
+ADR 0008 supersedes the parts of ADR 0004 that stated a trusted proxy identity directly creates an AegisPXE operator session or that the local operator key is sufficient for browser login.

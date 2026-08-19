@@ -47,6 +47,7 @@ Examples:
 | `MAC002_MACHINE_IDENTITY_INVALID` | The supplied machine observation contains no usable identity or an invalid identifier. |
 | `MAC003_MACHINE_NOT_FOUND` | A requested machine ID does not exist. |
 | `MAC004_MACHINE_POLICY_INVALID` | A requested machine policy or policy mutation request is invalid. |
+| `MAC005_MACHINE_DELETE_CONFLICT` | A machine cannot be deleted while InstallationSpecs or other guarded provisioning ownership still exists. |
 | `ART001_ARTIFACT_TRUST_FAILED` | Signed release metadata, its trust anchor or a verified checksum manifest could not establish trusted artifact provenance. |
 | `ART002_ARTIFACT_HASH_MISMATCH` | Downloaded artifact content or an installer checksum manifest does not match its trusted SHA-256 identity. |
 | `ART003_ARTIFACT_FETCH_FAILED` | Required artifact or release metadata could not be fetched within the bounded transport contract. |
@@ -60,6 +61,7 @@ Examples:
 | `INS006_INSTALLER_TELEMETRY_INVALID` | An installer/reporter telemetry request violates body, stage, source, idempotency or other validation rules. |
 | `INS007_INSTALLER_TELEMETRY_CONFLICT` | Telemetry would regress/skip lifecycle state, reuse an idempotency key inconsistently, or conflict with already accepted state. |
 | `INS008_INSTALLER_LOG_LIMIT_EXCEEDED` | An installation log upload exceeded the bounded per-chunk or per-installation limit. |
+| `INS009_INSTALLATION_DELETE_CONFLICT` | An InstallationSpec cannot be deleted while its destructive assignment is still armed. |
 | `INS101_DEBIAN_BASE_INSTALL_FAILED` | Debian Installer reported failure of its native `bootstrap-base` step. |
 | `INS102_DEBIAN_PROFILE_INSTALL_FAILED` | Debian Installer reported failure of its native `pkgsel` step. |
 | `INS103_DEBIAN_BOOTLOADER_FAILED` | Debian Installer reported failure of its native GRUB installation step. |

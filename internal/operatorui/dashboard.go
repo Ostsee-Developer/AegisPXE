@@ -58,8 +58,8 @@ func NewDashboardWithTrustedProxy(next http.Handler, state *store.Store, auth *o
 
 func (h *DashboardHandler) registerDashboardRoutes() {
 	h.mux.HandleFunc("GET /ui/{$}", h.dashboardEntry)
-	h.mux.HandleFunc("GET /ui/assets/dashboard.css", h.dashboardRCStyle)
-	h.mux.HandleFunc("GET /ui/assets/dashboard.js", h.dashboardRCScript)
+	h.mux.HandleFunc("GET /ui/assets/dashboard.css", h.dashboardStableStyle)
+	h.mux.HandleFunc("GET /ui/assets/dashboard.js", h.dashboardStableScript)
 
 	h.mux.HandleFunc("POST /ui/auth/bootstrap", h.bootstrapInitialAdmin)
 	h.mux.HandleFunc("POST /ui/api/passkey/login/start", h.beginExternalPasskeyLogin)
@@ -73,14 +73,20 @@ func (h *DashboardHandler) registerDashboardRoutes() {
 
 	h.mux.HandleFunc("GET /ui/machines", h.dashboardMachines)
 	h.mux.HandleFunc("GET /ui/machines/{id}", h.dashboardMachine)
+	h.mux.HandleFunc("GET /ui/machines/{id}/manage", h.dashboardMachineManagement)
 	h.mux.HandleFunc("POST /ui/machines/{id}/policy", h.dashboardMachinePolicy)
+	h.mux.HandleFunc("POST /ui/machines/{id}/nickname", h.dashboardMachineNickname)
+	h.mux.HandleFunc("POST /ui/machines/{id}/delete", h.dashboardDeleteMachine)
+	h.mux.HandleFunc("GET /ui/api/machine-metadata", h.dashboardMachineMetadata)
 
 	h.mux.HandleFunc("GET /ui/installations", h.dashboardInstallations)
 	h.mux.HandleFunc("GET /ui/installations/new", h.dashboardInstallationWizard)
 	h.mux.HandleFunc("POST /ui/installations", h.dashboardCreateInstallation)
 	h.mux.HandleFunc("GET /ui/installations/{id}", h.dashboardInstallation)
+	h.mux.HandleFunc("GET /ui/installations/{id}/manage", h.dashboardInstallationManagement)
 	h.mux.HandleFunc("POST /ui/installations/{id}/arm", h.dashboardArmInstallation)
 	h.mux.HandleFunc("POST /ui/installations/{id}/cancel", h.dashboardCancelInstallation)
+	h.mux.HandleFunc("POST /ui/installations/{id}/delete", h.dashboardDeleteInstallation)
 	h.mux.HandleFunc("GET /ui/installations/{id}/trust", h.dashboardInstallationTrust)
 	h.mux.HandleFunc("POST /ui/installations/{id}/trust/{fingerprint}/approve", h.dashboardApproveBootTrustKey)
 	h.mux.HandleFunc("POST /ui/installations/{id}/trust/{fingerprint}/revoke", h.dashboardRevokeBootTrustKey)
@@ -90,9 +96,9 @@ func (h *DashboardHandler) registerDashboardRoutes() {
 	h.mux.HandleFunc("POST /ui/users/{id}/block", h.dashboardBlockUser)
 
 	h.mux.HandleFunc("GET /ui/logs", h.dashboardLogs)
-	h.mux.HandleFunc("GET /ui/api/logs", h.dashboardLogFeed)
+	h.mux.HandleFunc("GET /ui/api/logs", h.dashboardStableLogFeed)
 	h.mux.HandleFunc("GET /ui/api/logs/tail", h.dashboardLogTail)
-	h.mux.HandleFunc("GET /ui/logs/export", h.dashboardLogExport)
+	h.mux.HandleFunc("GET /ui/logs/export", h.dashboardStableLogExport)
 
 	// Old dev.4/dev.8 routes intentionally collapse into the single dashboard.
 	h.mux.HandleFunc("GET /ui/operator/{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -225,6 +231,10 @@ func (h *DashboardHandler) dashboardAuthRejected(r *http.Request, operation, cod
 }
 
 func (h *DashboardHandler) setDashboardSessionCookie(w http.ResponseWriter, r *http.Request, token string, session operator.Session) {
+	// Trusted-proxy requests are cloned with synthetic TLS state before they
+	// reach the Dashboard, so r.TLS!=nil correctly marks the browser-facing
+	// HTTPS path. Loopback recovery is intentionally allowed over local HTTP;
+	// marking that cookie Secure would make browsers refuse to send it back.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
