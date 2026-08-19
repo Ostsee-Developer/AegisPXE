@@ -71,7 +71,7 @@ func runEvent(args []string) error {
 	if !stage.Valid() || !sourceValue.Valid() {
 		return errors.New("invalid lifecycle stage or source")
 	}
-	return reporter.QueueEvent(stage, sourceValue, *message, *errorCode)
+	return reporter.QueueHookEvent(stage, sourceValue, *message, *errorCode)
 }
 
 func runInstallFirstBoot(ctx context.Context, args []string) error {
