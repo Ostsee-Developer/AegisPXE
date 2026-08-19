@@ -66,6 +66,24 @@ func (b *LogBuffer) Snapshot(after uint64, limit int) []LogEntry {
 	return out
 }
 
+func (b *LogBuffer) Tail(limit int) []LogEntry {
+	if b == nil {
+		return nil
+	}
+	if limit <= 0 || limit > b.capacity {
+		limit = b.capacity
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	start := len(b.entries) - limit
+	if start < 0 {
+		start = 0
+	}
+	out := make([]LogEntry, len(b.entries)-start)
+	copy(out, b.entries[start:])
+	return out
+}
+
 func (b *LogBuffer) LatestSequence() uint64 {
 	if b == nil {
 		return 0
