@@ -47,8 +47,6 @@ The implementation must remain testable without root and without booting a VM fo
 
 Drivers may share pure utilities and stable domain types. They may not share runtime command lists merely because two Linux distributions happen to use the same command names.
 
-For example, the fact that Debian and Ubuntu both use systemd does not mean installer-time `systemctl` semantics are interchangeable.
-
 Each driver is responsible for knowing:
 
 - which phase runs in an installer environment,
@@ -84,6 +82,16 @@ Boot rendering must not embed secrets in public paths, kernel arguments or logs.
 
 Assignment consumption follows the separate one-shot public handoff contract in ADR 0005. A driver must not reinterpret assignment consumption as lifecycle progress.
 
+### Secure Boot
+
+A driver that advertises Secure Boot compatibility must define the complete executable trust chain, not merely a firmware flag. It must identify every signed boot component, the trust authority for each transition, the artifact-integrity mechanism used by AegisPXE and the negative behavior when validation fails.
+
+Secure Boot observation is inventory/policy evidence and must not be described as remote attestation unless a separate cryptographic attestation protocol actually proves the state.
+
+The Debian 13 driver contract v2 pins `linux`, native `initrd.gz` and Debian `bootnetx64.efi` from one verified Debian installer provenance. AegisPXE configures the Debian shim through iPXE's `shim` command but does not modify or repack the known-good Debian initrd. The first-stage signed iPXE chain is a platform concern described by ADR 0009.
+
+No feature is silently downgraded when Secure Boot policy is `required`.
+
 ## Seed contract
 
 Seed/configuration material is installation-scoped. Drivers must document how the native installer locates its seed and which requests are expected during a healthy installation.
@@ -108,20 +116,11 @@ A telemetry integration must also define:
 - what happens when trust cannot be established,
 - how failure telemetry is attempted from every supported installer stage.
 
-### Debian 13 reporter
+### Debian 13 reporter status
 
-The Debian 13 Standard driver injects a packaged amd64 reporter binary and non-secret reporter configuration into the installer initrd before the final Preseed object.
+The earlier Debian reporter/initramfs injection design is suspended after failing the real UEFI/vTPM E2E path. The production Debian transport is intentionally restored to native kernel + native initrd + Preseed and dev.22 Secure Boot does not reintroduce reporter injection.
 
-Its authoritative boundaries are:
-
-- `preseed/early_command` -> `INSTALLER_STARTED`,
-- `partman/early_command` -> `DISK_PREPARATION`,
-- native `bootstrap-base` syslog evidence -> `OS_INSTALLING`,
-- native `pkgsel` syslog evidence -> `PROFILE_APPLYING`,
-- `preseed/late_command` -> `HARDENING`,
-- installed systemd finalizer -> `FIRST_BOOT`, `VALIDATING`, then `SUCCESS` or `FAILED`.
-
-The reporter establishes explicit TPM-bound trust according to ADR 0007 before authenticated runtime telemetry can proceed. The late hook intentionally waits for that trust boundary rather than silently completing without a usable first-boot finalizer.
+TPM trust, signed telemetry and reporter source may remain as isolated protocol/runtime work, but they are not part of the current production Debian boot contract. A replacement reporter delivery mechanism must be designed around the proven installer path and pass its own E2E gate before production exposure.
 
 ## First-boot contract
 
@@ -131,7 +130,7 @@ A driver must not start services or apply live-kernel state from a target chroot
 
 First-boot logic must be idempotent and report success/failure.
 
-If a first-boot credential must cross a reboot boundary, plaintext credential material must not be written to the installed filesystem. The Debian 13 reporter persists only TPM-encrypted lifecycle ciphertext and decrypts it through the same TPM-derived key after reboot.
+If a first-boot credential must cross a reboot boundary, plaintext credential material must not be written to the installed filesystem.
 
 ## Validation contract
 
@@ -174,9 +173,11 @@ No feature is silently downgraded.
 
 An InstallationSpec stores driver ID and driver contract version. Driver contract versions are independent from the AegisPXE application version. A UI, packaging or unrelated server change therefore does not invalidate a driver contract.
 
-A driver implementation must refuse to render a spec requiring a different contract version. Any behavior change that can alter rendered boot/seed/runtime semantics requires an intentional driver-version decision and tests.
+A current driver may keep an explicitly identified legacy contract readable for safe migration or cleanup, but it must not silently reinterpret that legacy spec as satisfying a newer security capability. New InstallationSpecs use the current contract version.
 
-Updating a driver must not silently reinterpret an already armed installation's rendered contract. Breaking driver behavior requires documentation and may require an ADR.
+Any behavior change that can alter rendered boot/seed/runtime semantics requires an intentional driver-version decision and tests. Updating a driver must not silently reinterpret an already armed installation's rendered contract. Breaking driver behavior requires documentation and may require an ADR.
+
+For Debian 13, contract v1 remains readable as the pre-Secure-Boot legacy contract. Contract v2 is the first contract that pins the Debian signed shim artifact and may be authorized under a `required` Secure Boot policy.
 
 ## Initial drivers
 
