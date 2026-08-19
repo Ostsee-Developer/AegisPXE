@@ -20,6 +20,14 @@ func TestSchemaMigrationAddsProvisioningOperatorTrustAndMachineMetadataWithLogs(
 	for _, statement := range []string{
 		`CREATE TABLE schema_meta (version INTEGER NOT NULL)`,
 		`INSERT INTO schema_meta(version) VALUES(1)`,
+		`CREATE TABLE machines (
+			id TEXT PRIMARY KEY,
+			policy TEXT NOT NULL CHECK(policy IN ('pending','local','provision','blocked')),
+			architecture TEXT NOT NULL DEFAULT '',
+			firmware TEXT NOT NULL DEFAULT '',
+			first_seen TEXT NOT NULL,
+			last_seen TEXT NOT NULL
+		)`,
 		`CREATE TABLE installation_specs (
 			id TEXT PRIMARY KEY,
 			machine_id TEXT NOT NULL,
