@@ -17,10 +17,12 @@ BUILD_DIR="$(mktemp -d)"
 trap 'rm -rf "$BUILD_DIR"' EXIT
 PKG_ROOT="$BUILD_DIR/root"
 OUT_DIR="$ROOT_DIR/dist"
+SECURE_BOOT_BUILD="$BUILD_DIR/secureboot"
 mkdir -p "$OUT_DIR"
 install -d -m 0755 \
   "$PKG_ROOT/DEBIAN" \
   "$PKG_ROOT/usr/lib/aegispxe" \
+  "$PKG_ROOT/usr/lib/aegispxe/secureboot" \
   "$PKG_ROOT/etc/aegispxe" \
   "$PKG_ROOT/lib/systemd/system"
 
@@ -29,6 +31,15 @@ GOOS=linux \
 GOARCH="$GOARCH" \
 CGO_ENABLED=0 \
 bash scripts/build.sh >/dev/null
+
+# Production Secure Boot chain. The fetch helper pins iPXE v2.0.0 to its
+# release commit, checks GitHub's release-asset SHA-256 and size, rejects
+# unsafe archive members, and requires Authenticode signature tables on both
+# the Microsoft-trusted iPXE shim and its signed second stage.
+bash scripts/fetch-ipxe-secureboot.sh "$SECURE_BOOT_BUILD"
+install -m 0644 "$SECURE_BOOT_BUILD/ipxe-shim.efi" "$PKG_ROOT/usr/lib/aegispxe/secureboot/ipxe-shim.efi"
+install -m 0644 "$SECURE_BOOT_BUILD/ipxe.efi" "$PKG_ROOT/usr/lib/aegispxe/secureboot/ipxe.efi"
+install -m 0644 "$SECURE_BOOT_BUILD/manifest.json" "$PKG_ROOT/usr/lib/aegispxe/secureboot/manifest.json"
 
 # The reporter source remains available for isolated trust/telemetry testing,
 # but is intentionally not installed into the production package until its
