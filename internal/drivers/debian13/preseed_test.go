@@ -101,6 +101,41 @@ func TestRenderSeedLateHookFailsClosedWithoutComplexExitTrap(t *testing.T) {
 	}
 }
 
+func TestRenderSeedLateHookHasNoDebconfEscapeSequences(t *testing.T) {
+	spec := validInstallationSpec()
+	var logs bytes.Buffer
+	logger := observability.New(&logs, slog.LevelDebug)
+
+	seed, err := RenderSeed(context.Background(), logger, spec, "req_late_hook_escape_safety")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "d-i preseed/late_command string "
+	var lateCommand string
+	for _, line := range strings.Split(string(seed.Content), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			lateCommand = strings.TrimPrefix(line, prefix)
+			break
+		}
+	}
+	if lateCommand == "" {
+		t.Fatal("preseed late command is missing")
+	}
+	if strings.ContainsAny(lateCommand, "\\\r\n") {
+		t.Fatalf("late command contains an escape or line break that debconf can reinterpret: %q", lateCommand)
+	}
+	for _, want := range []string{
+		"echo 'component=aegispxe step=late_command result=started'",
+		": > '/target/home/guardian/.ssh/authorized_keys'",
+		"echo 'PasswordAuthentication no' > '/target/etc/ssh/sshd_config.d/90-aegispxe.conf'",
+		"echo 'APT::Periodic::Unattended-Upgrade \"1\";' >> '/target/etc/apt/apt.conf.d/20auto-upgrades'",
+	} {
+		if !strings.Contains(lateCommand, want) {
+			t.Fatalf("late command missing preseed-safe fragment %q", want)
+		}
+	}
+}
+
 func TestRenderSeedLogsCorrelationWithoutSeedOrKeyMaterial(t *testing.T) {
 	spec := validInstallationSpec()
 	var logs bytes.Buffer
