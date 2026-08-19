@@ -33,13 +33,13 @@ case "$root" in
   /*) ;;
   *)
     log "refusing non-absolute TFTP_DIRECTORY from $CONFIG"
-    exit 0
+    exit 1
     ;;
 esac
 
 if [ -z "$root" ] || [ "$root" = "/" ]; then
   log "refusing unsafe TFTP_DIRECTORY '$root'"
-  exit 0
+  exit 1
 fi
 
 install -d -m 0755 "$root"
@@ -49,22 +49,36 @@ materialize() {
   target_name="$2"
   target_file="$root/$target_name"
 
-  if [ ! -r "$source_file" ]; then
+  if [ ! -r "$source_file" ] || [ ! -f "$source_file" ]; then
     log "required iPXE asset missing: $source_file"
+    return 1
+  fi
+
+  if [ -L "$target_file" ]; then
+    log "refusing package-managed PXE asset symlink: $target_file"
+    return 1
+  fi
+  if [ -e "$target_file" ] && [ ! -f "$target_file" ]; then
+    log "refusing non-regular package-managed PXE asset: $target_file"
+    return 1
+  fi
+  if [ -f "$target_file" ] && cmp -s "$source_file" "$target_file"; then
+    chmod 0644 "$target_file"
+    log "$target_name already current in $root"
     return 0
   fi
 
-  if [ -e "$target_file" ] || [ -L "$target_file" ]; then
-    if [ -f "$target_file" ] && [ ! -L "$target_file" ] && cmp -s "$source_file" "$target_file"; then
-      log "$target_name already present in $root"
-    else
-      log "leaving existing $target_file unchanged"
-    fi
-    return 0
+  tmp="$target_file.aegispxe.$$"
+  rm -f "$tmp"
+  if ! install -m 0644 "$source_file" "$tmp"; then
+    rm -f "$tmp"
+    return 1
   fi
-
-  install -m 0644 "$source_file" "$target_file"
-  log "installed $target_name into $root"
+  if ! mv -f "$tmp" "$target_file"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  log "refreshed package-managed $target_name in $root"
 }
 
 materialize /usr/lib/ipxe/ipxe.efi ipxe.efi
