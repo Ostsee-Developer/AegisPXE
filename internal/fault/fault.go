@@ -18,6 +18,9 @@ const (
 	InstallationAssignmentInvalid   = "INS003_INSTALLATION_ASSIGNMENT_INVALID"
 	InstallationAssignmentConflict  = "INS004_INSTALLATION_ASSIGNMENT_CONFLICT"
 	InstallationAssignmentNotFound  = "INS005_INSTALLATION_ASSIGNMENT_NOT_FOUND"
+	InstallerTelemetryInvalid       = "INS006_INSTALLER_TELEMETRY_INVALID"
+	InstallerTelemetryConflict      = "INS007_INSTALLER_TELEMETRY_CONFLICT"
+	InstallerLogLimitExceeded       = "INS008_INSTALLER_LOG_LIMIT_EXCEEDED"
 	CryptographicBootTrustRequired  = "SEC001_CRYPTOGRAPHIC_BOOT_TRUST_REQUIRED"
 	OperatorAuthenticationFailed    = "SEC002_OPERATOR_AUTHENTICATION_FAILED"
 	OperatorAuthRateLimited         = "SEC003_OPERATOR_AUTH_RATE_LIMITED"
@@ -32,6 +35,9 @@ const (
 	OperatorAuthorizationDenied     = "SEC012_OPERATOR_AUTHORIZATION_DENIED"
 	OperatorRecoveryFailed          = "SEC013_OPERATOR_RECOVERY_FAILED"
 	OperatorWebAuthnNotConfigured   = "SEC014_OPERATOR_WEBAUTHN_NOT_CONFIGURED"
+	InstallerCredentialRequired     = "SEC015_INSTALLER_CREDENTIAL_REQUIRED"
+	InstallerCredentialInvalid      = "SEC016_INSTALLER_CREDENTIAL_INVALID"
+	InstallerCredentialExpired      = "SEC017_INSTALLER_CREDENTIAL_EXPIRED"
 	StorageFailure                  = "SYS001_STORAGE_FAILURE"
 )
 

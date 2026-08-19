@@ -1,6 +1,6 @@
 # Installation Lifecycle
 
-AegisPXE installation status is event-driven. The current status is a projection of accepted append-only events.
+AegisPXE installation status is event-driven. The current status is a projection of accepted append-only lifecycle events.
 
 ## Rule zero
 
@@ -13,39 +13,33 @@ Examples of invalid inference:
 - HTTP traffic -> profile applying,
 - elapsed time -> OS installing.
 
-Only an authenticated event for the installation may advance lifecycle state.
+Only an event from the source authorized for that installation stage may advance lifecycle state.
 
-## Initial lifecycle
+## Canonical lifecycle
 
 ```text
 CREATED
   -> QUEUED
-  -> BOOTLOADER_CHECKIN
+  -> PXE_BOOTED
   -> INSTALLER_STARTED
-  -> STORAGE_PREPARING
+  -> DISK_PREPARATION
   -> OS_INSTALLING
   -> PROFILE_APPLYING
-  -> FIRST_BOOT
+  -> HARDENING
+  -> FIRST_BOOT       (when required)
   -> VALIDATING
-  -> COMPLETED
+  -> SUCCESS
 ```
 
-A failure may be reported from any active stage:
+`HARDENING` may transition directly to `VALIDATING` for drivers that do not require a first-boot finalizer.
 
-```text
-* -> FAILED
-```
+A runtime failure terminates the lifecycle as `FAILED`. Terminal state never rewrites or removes earlier accepted events.
 
-Administrative cancellation and expiry are terminal states distinct from runtime failure:
-
-- `CANCELLED`
-- `EXPIRED`
-
-## Assignment and trust before lifecycle start
+## Assignment and lifecycle are different state machines
 
 The immutable InstallationSpec exists before runtime lifecycle progress begins. An operator may then arm an Assignment that binds exactly one Machine to that InstallationSpec.
 
-Assignment state is administrative/runtime control state, not inferred installer progress:
+Assignment state controls whether a destructive boot payload may be handed out:
 
 ```text
 unassigned
@@ -54,85 +48,116 @@ unassigned
        -> cancelled
 ```
 
-Arming emits an auditable `INSTALLATION_ARMED` record. Cancellation emits `INSTALLATION_ASSIGNMENT_CANCELLED`.
+Lifecycle state records what authoritative components report happened during that installation.
 
-An armed Assignment plus operator approval may make non-secret public boot material eligible. It does not authenticate the booting client and does not authorize release of lifecycle credentials.
+Arming creates `QUEUED`. The server records `PXE_BOOTED` when the armed machine reaches the AegisPXE provisioning chain.
 
-Secret-bearing installer operations require cryptographic boot trust. The Assignment is consumed only when the server accepts an authenticated `INSTALLER_STARTED` event for the exact assigned Installation.
+Per ADR 0005, an armed Assignment is consumed at the final public Preseed handoff so the same destructive installer is not selected again on the next PXE boot. `CONSUMED` is scheduling state only. It does not mean `INSTALLER_STARTED`, `SUCCESS`, validation, or cryptographic trust.
 
 ## Event shape
 
-Every installation event contains at least:
+Every lifecycle event contains at least:
 
 - installation ID,
 - monotonically increasing accepted sequence,
-- event type,
-- source/component identity,
+- stage,
+- explicit source identity,
 - server receive timestamp,
 - optional client timestamp,
-- stable error code when applicable,
+- request ID,
+- idempotency key,
+- stable error code for `FAILED`,
 - bounded human-readable message,
-- non-secret structured metadata.
+- bounded non-secret structured metadata.
 
 ## Authoritative sources
 
-Different stages have explicit allowed sources.
+The initial authority mapping is:
 
-Examples:
-
-- `CREATED`: server/orchestrator,
-- `QUEUED`: server/orchestrator,
-- `BOOTLOADER_CHECKIN`: AegisPXE bootstrap/boot endpoint,
+- `CREATED`: server,
+- `QUEUED`: server,
+- `PXE_BOOTED`: server boot path,
 - `INSTALLER_STARTED`: authenticated installer integration,
-- `STORAGE_PREPARING`: OS driver installer hook,
-- `OS_INSTALLING`: OS driver installer hook,
-- `PROFILE_APPLYING`: OS driver/runtime hook,
-- `FIRST_BOOT`: installed OS first-boot agent/finalizer,
-- `VALIDATING`: validation component,
-- `COMPLETED`: validation component/server after required checks pass.
+- `DISK_PREPARATION`: authenticated installer integration,
+- `OS_INSTALLING`: authenticated installer integration,
+- `PROFILE_APPLYING`: authenticated installer integration,
+- `HARDENING`: authenticated installer integration,
+- `FIRST_BOOT`: authenticated installed-OS finalizer,
+- `VALIDATING`: validator or finalizer,
+- `SUCCESS`: validator or finalizer,
+- `FAILED`: authenticated installer, finalizer, or validator while runtime is active.
 
-The state machine rejects events from sources not authorized for that event type.
+The state machine rejects events from sources not authorized for that stage.
 
-## Monotonicity
+## Authentication
 
-Lifecycle state does not regress. Duplicate events are handled idempotently. Out-of-order events are either buffered by a deliberately documented mechanism or rejected; they must never silently rewrite history.
+Installer, finalizer, and validator telemetry requires an installation-scoped lifecycle credential. Discovery identifiers are never sufficient authentication.
 
-## Boot assignment consumption
+The credential is generated by the server, scoped to one immutable InstallationSpec, expires, can be revoked, and is automatically revoked when the lifecycle reaches a terminal state. Raw credential material must never be stored in ordinary database columns, logs, URLs, query strings, kernel arguments, or public Preseed content.
 
-The provisioning assignment remains armed through firmware retries, bootloader fetches, initrd/preseed construction and reads of non-secret boot material.
+Actual release of the credential remains behind the cryptographic boot-trust boundary in ADR 0003. The telemetry API existing on the server is not permission to place a bearer credential into public PXE material.
 
-It is consumed only after the server accepts an authenticated `INSTALLER_STARTED` event for the currently assigned installation. Authentication must satisfy the provisioning trust contract; discovery identifiers alone are insufficient.
+## Idempotency and ordering
 
-Consumption creates its own auditable state mutation.
+Lifecycle state does not regress. Every client report carries an installation-scoped idempotency key.
+
+- Replaying the same key with identical content returns the already accepted event.
+- Reusing the same key with different content is rejected as a conflict.
+- Skipping a required stage is rejected.
+- A terminal state cannot transition again.
+
+This makes network retries safe without silently rewriting history.
+
+## Installer log stream
+
+Installer logs are a separate authenticated telemetry stream attached to the InstallationSpec.
+
+Each accepted chunk has:
+
+- installation-local contiguous sequence number,
+- idempotency key,
+- source,
+- server timestamp,
+- optional client timestamp,
+- bounded content,
+- server-computed digest after redaction.
+
+Sequence gaps are rejected. Known sensitive line patterns are redacted before durable storage. The initial limits are 128 KiB per chunk and 16 MiB per installation.
 
 ## Failure model
 
 `FAILED` records:
 
-- failed stage,
 - error code,
-- reporting component,
+- reporting source,
 - message,
-- related log cursor/range when available.
+- non-secret metadata,
+- related installer logs by installation correlation.
 
 The previous event history remains untouched.
 
-A retry creates a new InstallationSpec unless the operation is explicitly an idempotent retry of the same stage. Reusing a failed mutable installation as a different desired state is forbidden.
+A new desired installation creates a new InstallationSpec. A failed InstallationSpec is never mutated into a different desired state.
 
-## Machine policy after terminal state
+## Machine boot after handoff or terminal state
 
-After `COMPLETED`, `FAILED`, `CANCELLED` or `EXPIRED`, the active provisioning assignment is removed according to the transition's transaction. The default machine policy is then evaluated, normally resulting in local boot.
+Once no armed Assignment remains, provisioning policy resolves to local boot. AegisPXE actively attempts the installed local bootloader instead of relying solely on firmware to continue after an iPXE exit.
+
+For x86_64 UEFI the local boot chain checks Debian vendor loaders, the standard `\\EFI\\BOOT\\BOOTX64.EFI` fallback path, and then generic local disk boot. Legacy BIOS uses the local disk boot path.
 
 ## Timeouts
 
-Timeouts are explicit policy, not inferred progress. A timeout produces a defined error code/event and enough log context to diagnose what event was missing.
+Timeouts are explicit policy, not inferred progress. A timeout produces a defined error code/event and enough log context to diagnose what report was missing.
 
 Examples:
 
 - installer never reported `INSTALLER_STARTED`,
-- no heartbeat/log activity after `OS_INSTALLING`,
-- first boot did not report within configured deadline.
+- no telemetry/log activity after `OS_INSTALLING`,
+- first boot did not report within the configured deadline.
 
 ## UI projection
 
-The Studio timeline displays accepted events in sequence order. It may show elapsed time, assignment state and trust gates, but it must visually distinguish those from authoritative lifecycle state and must never manufacture completed stages.
+Studio displays accepted lifecycle events in sequence order and installer logs scoped to the relevant installation. Assignment state and trust gates remain visible but visually distinct from authoritative lifecycle state.
+
+Studio may show elapsed time. It must never manufacture a completed stage.
+
+See ADR 0006 for the authenticated telemetry contract and ADR 0005 for one-shot public boot handoff semantics.

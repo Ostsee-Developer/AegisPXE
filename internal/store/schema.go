@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 4
+const currentSchemaVersion = 5
 
 func (s *Store) initialize(ctx context.Context) error {
 	for _, pragma := range []string{
@@ -30,7 +30,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			version INTEGER NOT NULL
 		)`,
 		`INSERT INTO schema_meta(version)
-		 SELECT 4 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
+		 SELECT 5 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
 		`CREATE TABLE IF NOT EXISTS machines (
 			id TEXT PRIMARY KEY,
 			policy TEXT NOT NULL CHECK(policy IN ('pending','local','provision','blocked')),
@@ -119,6 +119,49 @@ func (s *Store) initialize(ctx context.Context) error {
 			error_code TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id, sequence)`,
+		`CREATE TABLE IF NOT EXISTS installation_lifecycle_credentials (
+			credential_id TEXT PRIMARY KEY,
+			installation_id TEXT NOT NULL UNIQUE REFERENCES installation_specs(id) ON DELETE RESTRICT,
+			secret_sha256 BLOB NOT NULL CHECK(length(secret_sha256) = 32),
+			created_at TEXT NOT NULL,
+			expires_at TEXT NOT NULL,
+			revoked_at TEXT NOT NULL DEFAULT '',
+			last_used_at TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_installation_lifecycle_credentials_installation
+		 ON installation_lifecycle_credentials(installation_id)`,
+		`CREATE TABLE IF NOT EXISTS installation_lifecycle_events (
+			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+			installation_id TEXT NOT NULL REFERENCES installation_specs(id) ON DELETE RESTRICT,
+			stage TEXT NOT NULL CHECK(stage IN ('CREATED','QUEUED','PXE_BOOTED','INSTALLER_STARTED','DISK_PREPARATION','OS_INSTALLING','PROFILE_APPLYING','HARDENING','FIRST_BOOT','VALIDATING','SUCCESS','FAILED')),
+			source TEXT NOT NULL CHECK(source IN ('server','installer','finalizer','validator')),
+			received_at TEXT NOT NULL,
+			client_at TEXT NOT NULL DEFAULT '',
+			request_id TEXT NOT NULL DEFAULT '',
+			idempotency_key TEXT NOT NULL,
+			message TEXT NOT NULL DEFAULT '',
+			error_code TEXT NOT NULL DEFAULT '',
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE(installation_id,idempotency_key)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_installation_lifecycle_events_installation
+		 ON installation_lifecycle_events(installation_id,sequence)`,
+		`CREATE TABLE IF NOT EXISTS installation_log_chunks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			installation_id TEXT NOT NULL REFERENCES installation_specs(id) ON DELETE RESTRICT,
+			sequence INTEGER NOT NULL,
+			source TEXT NOT NULL CHECK(source IN ('installer','finalizer','validator')),
+			received_at TEXT NOT NULL,
+			client_at TEXT NOT NULL DEFAULT '',
+			request_id TEXT NOT NULL DEFAULT '',
+			idempotency_key TEXT NOT NULL,
+			content TEXT NOT NULL,
+			content_sha256 TEXT NOT NULL,
+			UNIQUE(installation_id,sequence),
+			UNIQUE(installation_id,idempotency_key)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_installation_log_chunks_installation
+		 ON installation_log_chunks(installation_id,sequence)`,
 	}
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
@@ -161,6 +204,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			"profile_snapshot_column_added", profileColumnAdded,
 			"assignment_schema_added", fromVersion < 3,
 			"operator_identity_schema_added", fromVersion < 4,
+			"installer_telemetry_schema_added", fromVersion < 5,
 			"result", "success",
 		)
 	}

@@ -74,8 +74,8 @@ func TestArmedDiscoveryChainsProvisioningWithoutConsumingAssignment(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 || events[0].Type != event.InstallationCreated || events[1].Type != event.InstallationArmed {
-		t.Fatalf("discovery invented installation lifecycle events: %+v", events)
+	if len(events) != 3 || events[0].Type != event.InstallationCreated || events[1].Type != event.InstallationArmed || events[2].Type != "PXE_BOOTED" {
+		t.Fatalf("armed discovery did not record the authoritative PXE check-in: %+v", events)
 	}
 }
 

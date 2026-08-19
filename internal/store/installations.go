@@ -12,6 +12,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
 	"github.com/Ostsee-Developer/AegisPXE/internal/installation"
+	"github.com/Ostsee-Developer/AegisPXE/internal/lifecycle"
 )
 
 func (s *Store) CreateInstallationSpec(ctx context.Context, spec installation.Spec, requestID string) (installation.Spec, error) {
@@ -71,6 +72,9 @@ func (s *Store) CreateInstallationSpec(ctx context.Context, spec installation.Sp
 	)
 	if err != nil {
 		return installation.Spec{}, s.storageError("persist installation spec", err)
+	}
+	if err := appendServerLifecycleEventTx(ctx, tx, spec.ID, lifecycle.StageCreated, "server:created:"+spec.ID, "immutable installation spec created", requestID, spec.CreatedAt); err != nil {
+		return installation.Spec{}, s.storageError("persist installation lifecycle creation", err)
 	}
 	if err := appendEventTx(ctx, tx, event.Event{
 		EntityType: event.EntityInstallation,
