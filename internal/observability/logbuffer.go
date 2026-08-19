@@ -67,6 +67,10 @@ func (b *LogBuffer) Snapshot(after uint64, limit int) []LogEntry {
 }
 
 func (b *LogBuffer) Tail(limit int) []LogEntry {
+	return b.TailThrough(^uint64(0), limit)
+}
+
+func (b *LogBuffer) TailThrough(sequence uint64, limit int) []LogEntry {
 	if b == nil {
 		return nil
 	}
@@ -75,12 +79,17 @@ func (b *LogBuffer) Tail(limit int) []LogEntry {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	start := len(b.entries) - limit
+
+	end := len(b.entries)
+	for end > 0 && b.entries[end-1].Sequence > sequence {
+		end--
+	}
+	start := end - limit
 	if start < 0 {
 		start = 0
 	}
-	out := make([]LogEntry, len(b.entries)-start)
-	copy(out, b.entries[start:])
+	out := make([]LogEntry, end-start)
+	copy(out, b.entries[start:end])
 	return out
 }
 
