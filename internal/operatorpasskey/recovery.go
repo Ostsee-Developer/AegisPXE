@@ -10,7 +10,7 @@ import (
 
 const (
 	recoveryTicketLifetime = 5 * time.Minute
-	maxRecoveryTickets      = 128
+	maxRecoveryTickets     = 128
 )
 
 type recoveryTicket struct {
