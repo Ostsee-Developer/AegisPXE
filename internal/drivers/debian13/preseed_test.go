@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -110,17 +111,7 @@ func TestRenderSeedLateHookHasNoDebconfEscapeSequences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const prefix = "d-i preseed/late_command string "
-	var lateCommand string
-	for _, line := range strings.Split(string(seed.Content), "\n") {
-		if strings.HasPrefix(line, prefix) {
-			lateCommand = strings.TrimPrefix(line, prefix)
-			break
-		}
-	}
-	if lateCommand == "" {
-		t.Fatal("preseed late command is missing")
-	}
+	lateCommand := extractLateCommand(t, string(seed.Content))
 	if strings.ContainsAny(lateCommand, "\\\r\n") {
 		t.Fatalf("late command contains an escape or line break that debconf can reinterpret: %q", lateCommand)
 	}
@@ -134,6 +125,32 @@ func TestRenderSeedLateHookHasNoDebconfEscapeSequences(t *testing.T) {
 			t.Fatalf("late command missing preseed-safe fragment %q", want)
 		}
 	}
+}
+
+func TestRenderSeedLateHookIsValidPOSIXShell(t *testing.T) {
+	spec := validInstallationSpec()
+	var logs bytes.Buffer
+	logger := observability.New(&logs, slog.LevelDebug)
+	seed, err := RenderSeed(context.Background(), logger, spec, "req_late_hook_shell_syntax")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lateCommand := extractLateCommand(t, string(seed.Content))
+	if output, err := exec.Command("sh", "-n", "-c", lateCommand).CombinedOutput(); err != nil {
+		t.Fatalf("late command is not valid shell syntax: %v\n%s\n%s", err, output, lateCommand)
+	}
+}
+
+func extractLateCommand(t *testing.T, content string) string {
+	t.Helper()
+	const prefix = "d-i preseed/late_command string "
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix)
+		}
+	}
+	t.Fatal("preseed late command is missing")
+	return ""
 }
 
 func TestRenderSeedLogsCorrelationWithoutSeedOrKeyMaterial(t *testing.T) {
