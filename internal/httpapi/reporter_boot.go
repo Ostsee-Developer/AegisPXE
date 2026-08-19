@@ -59,8 +59,12 @@ func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *ht
 	_, _ = fmt.Fprintln(w, "imgfree")
 	_, _ = fmt.Fprintf(w, "kernel %s%s || goto boot_failed\n", kernelURL, args)
 	_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", initrdURL)
-	_, _ = fmt.Fprintf(w, "initrd %s /aegispxe/reporter || goto boot_failed\n", reporterURL)
-	_, _ = fmt.Fprintf(w, "initrd %s /aegispxe/reporter.json || goto boot_failed\n", reporterConfigURL)
+	// iPXE's magic initrd only creates parent directories when mkdir=1 is
+	// explicitly supplied, and injected files default to mode 0644. The
+	// reporter must therefore create /aegispxe and be executable at extraction
+	// time rather than relying on Debian Installer to repair the payload later.
+	_, _ = fmt.Fprintf(w, "initrd %s /aegispxe/reporter mode=755 mkdir=1 || goto boot_failed\n", reporterURL)
+	_, _ = fmt.Fprintf(w, "initrd %s /aegispxe/reporter.json mkdir=1 || goto boot_failed\n", reporterConfigURL)
 	// Preseed deliberately remains the final network object. Its successful
 	// response commits the one-shot destructive boot handoff.
 	_, _ = fmt.Fprintf(w, "initrd %s /preseed.cfg || goto boot_failed\n", preseedURL)
