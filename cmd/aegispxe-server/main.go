@@ -204,7 +204,10 @@ func studioSurface(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
 			return
 		}
-		if path == "/healthz" || strings.HasPrefix(path, "/ui/") || path == "/api/v1/machines" || strings.HasPrefix(path, "/api/v1/machines/") {
+		// Inventory and mutations live behind the authenticated /ui surface.
+		// Do not expose the legacy read-only core machine API merely because the
+		// direct source is a trusted proxy; source trust is not a user session.
+		if path == "/healthz" || strings.HasPrefix(path, "/ui/") {
 			next.ServeHTTP(w, r)
 			return
 		}
