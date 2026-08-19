@@ -8,9 +8,7 @@ AegisPXE is built vertical-slice first. Tests must prove both successful provisi
 
 Tests should be small, explicit and easy to diagnose. We do not optimize for maximum assertion count or maximum coverage per test function.
 
-A test is a review concern when understanding what it proves requires mentally executing a large fixture, a copied implementation, or hundreds of lines of setup/output.
-
-There is deliberately no arbitrary line-count limit. Moving complexity into test helpers merely to satisfy a number does not make a test simpler.
+There is deliberately no arbitrary line-count limit. Moving complexity into helpers merely to satisfy a number does not make a test simpler.
 
 ## What tests must not become
 
@@ -19,21 +17,11 @@ Avoid:
 - reimplementing production algorithms inside tests,
 - giant end-to-end behavior simulations in unit tests,
 - asserting complete installer documents when only one contract changed,
-- large inline JSON/YAML/Preseed/Cloud-Init blobs for a single assertion,
 - broad golden files for unstable or incidental output,
 - duplicated assertions across unit, integration and E2E layers,
-- one test that attempts to validate an entire subsystem.
+- preserving superseded implementation details as compatibility theater.
 
-Prefer:
-
-- focused inputs,
-- focused expected outcomes,
-- small builders/fixtures with meaningful defaults,
-- table-driven tests only when cases share the same contract,
-- semantic assertions over exact full-document equality,
-- dedicated contract tests for security, state and observability invariants.
-
-Golden files are acceptable only for intentionally stable external formats where reviewing the whole generated artifact provides real value. They must not become snapshots that approve unrelated churn.
+Prefer focused inputs/outcomes, small fixtures, semantic assertions and dedicated security/state/observability contract tests.
 
 ## Test layers
 
@@ -43,102 +31,116 @@ Pure domain logic, validation, state transitions, redaction and deterministic dr
 
 Unit tests must not require root, network access or a VM.
 
-A unit test should normally exercise one domain rule. Examples:
+Examples:
 
-- `pending -> provision` is allowed,
 - an InstallationSpec rejects a non-canonical artifact digest,
-- a caller mutation cannot change an immutable InstallationSpec snapshot,
-- a secret field is redacted,
-- a Debian driver renders the required installer directive,
+- Secure Boot policy `required` allows only normalized state `enabled`,
+- incomplete UEFI Secure Boot evidence becomes `unknown` and therefore fails closed under required policy,
+- a Secure Boot asset manifest rejects an unexpected release/commit/file set or tampered content,
+- a Debian driver-v2 spec requires the signed Debian shim artifact,
+- a legacy driver-v1 spec remains inspectable but cannot be rendered as the current boot contract,
 - changing a signed telemetry path/body/timestamp invalidates its MAC,
-- a boot-trust public key outside the supported RSA contract is rejected.
-
-Do not test the entire Debian seed to prove one directive exists.
+- a secret field is redacted.
 
 ### Integration tests
 
-Database transactions, event persistence, machine discovery, API authentication, helper protocol boundaries, artifact metadata handling and driver/server integration.
+Database transactions, event persistence, machine discovery, API authentication, helper boundaries, artifact metadata handling and driver/server integration.
 
 Integration tests use temporary isolated state and must be repeatable.
 
-Each integration test should focus on one boundary or transaction. Examples:
+Examples:
 
-- discovery atomically persists one machine and one event,
+- discovery atomically persists Machine identity plus normalized Secure Boot evidence,
+- required Secure Boot policy blocks an armed Machine before provisioning when state is disabled/unknown/SetupMode/unsupported,
+- direct installation-material URLs cannot bypass that policy,
+- an enabled UEFI Machine receives the current Debian driver-v2 boot script,
+- that script keeps native Debian `initrd.gz` + Preseed and configures the pinned Debian shim without reporter/initramfs injection,
 - InstallationSpec creation atomically persists immutable state plus its audit record,
-- pending TPM key enrollment cannot release a lifecycle credential,
-- an explicitly approved TPM key may complete a fresh challenge for the exact InstallationSpec,
-- a consumed assignment remains eligible for the exact installation's trust proof,
-- a cancelled assignment rejects trust completion,
-- a valid reporter HMAC reaches lifecycle validation while a tampered body is rejected before lifecycle mutation.
+- pending TPM trust cannot release a lifecycle credential in isolated reporter protocol tests.
 
 ### E2E tests
 
-Real boot/install/first-boot flows in disposable VMs. E2E is a release gate, not a manual bonus step.
+Real boot/install/reboot flows in disposable VMs. E2E is a release gate, not a manual bonus step.
 
-E2E owns the complete workflow. Unit and integration tests should not reproduce E2E behavior in miniature.
+Unit and integration tests do not reproduce firmware, shim, kernel or TPM virtualization behavior. Those properties are verified in a real VM.
 
-E2E assertions stay outcome-oriented:
+E2E assertions remain outcome-oriented:
 
-- expected lifecycle terminal state,
-- expected required events,
-- expected machine/install identity,
-- expected validation result,
-- useful logs for failure,
-- expected local-boot behavior after the one-shot handoff.
+- expected Machine/platform-security state,
+- expected boot decision,
+- successful unattended installation,
+- successful local reboot,
+- expected SSH access and installed-state checks,
+- useful logs/error code for deliberately failed security states.
 
-## First milestones
+## Stabilized Debian 13 baseline
 
-### Milestone 0: Machine discovery
+The dev.21 baseline is the known-good production installer transport:
 
-Repeatedly prove:
+```text
+verified Debian kernel
+-> native Debian initrd.gz
+-> preseed.cfg
+-> Debian Installer
+-> installed OS
+-> deterministic local reboot
+```
 
-1. unknown VM PXE boots,
-2. AegisPXE records exactly one stable machine identity,
-3. discovery event/logs are present,
-4. machine appears as `pending`,
-5. no seed/provisioning access is granted,
-6. PXE exits to local boot/non-provisioning behavior,
-7. repeated boots update `last_seen` without creating duplicate machines.
+This path has completed the real Proxmox E2E, including successful reboot and SSH-key login. Regression tests must prevent reporter overlays, generated initramfs images, magic initrds, multi-initrd experiments or server-side repacking from re-entering this path accidentally.
 
-Target before moving on: at least 20 repeated discovery boots with no inconsistent state.
+Secure Boot work may add signed executable-verification components around this transport, but must not modify the native Debian initrd/Preseed delivery contract without a new explicit architecture decision and E2E proof.
 
-### Milestone 1: Debian 13 Standard
+## Secure Boot gate for dev.22
 
-A disposable VM must complete:
+Secure Boot is not complete because package or Go tests pass. Before dev.22 may be merged/released, a real Proxmox OVMF fixture must prove the positive and negative paths in `docs/TESTING_SECUREBOOT.md`.
 
-PXE -> installer -> storage -> OS -> profile -> hardening -> first boot -> validation -> local reboot
+### Positive fixture
 
-with no installer input after the operator's explicit provisioning/trust decisions.
+1. q35/OVMF UEFI VM.
+2. Secure Boot enabled, SetupMode disabled, required Microsoft third-party UEFI CA available.
+3. DHCP UEFI filename is `ipxe-shim.efi`.
+4. Firmware starts the official signed iPXE shim and its matching signed second stage.
+5. AegisPXE persists `secure_boot_state=enabled`.
+6. A fresh Debian driver-v2 InstallationSpec pins `linux`, native `initrd.gz` and Debian `bootnetx64.efi` from one verified installer provenance.
+7. Installation is armed and completes unattended.
+8. Secure Boot remains enabled across reboot.
+9. Deterministic local boot reaches installed Debian.
+10. SSH-key login succeeds.
+11. Logs correlate the signed asset validation, Machine state and provisioning decision.
 
-Before adding Debian Encrypted, Standard should complete at least 10 consecutive clean E2E runs and at least one intentionally failed run must produce useful stage/error/log output.
+### Negative fixtures
 
-### Milestone 1 trust/reporter gate
+At minimum prove:
 
-The TPM reporter path requires a VM with TPM 2.0 enabled. Before merging the first reporter implementation, a real E2E run must prove:
+- Secure Boot disabled -> no destructive installation material under `required`, reason `secure_boot_required`, `SEC023_SECURE_BOOT_REQUIRED` logged.
+- SetupMode active -> same fail-closed result.
+- incomplete Secure Boot evidence -> normalized `unknown` and no required-policy provisioning.
+- malformed Secure Boot evidence -> discovery rejection with `SEC024_SECURE_BOOT_EVIDENCE_INVALID`.
+- stale/tampered TFTP second stage -> package helper restores package-owned validated bytes.
+- tampered package-owned signed asset on a disposable server fixture -> server startup fails under `required` with `SEC025_SECURE_BOOT_ASSETS_INVALID`.
 
-1. reporter binary and non-secret configuration are injected into the Debian Installer initrd,
-2. the reporter creates/recreates the same TPM-bound public key across installer and first boot,
-3. first contact produces a pending key and no lifecycle credential is released,
-4. administrator approval is required and is audited,
-5. the approved key completes a fresh installation/machine/key-bound challenge,
-6. the server returns only TPM-encrypted lifecycle credential ciphertext,
-7. the raw lifecycle credential does not appear in Preseed, iPXE, URLs, logs or installed files,
-8. reporter event/log traffic authenticates without transmitting the raw credential,
-9. the exact lifecycle reaches `INSTALLER_STARTED`, `DISK_PREPARATION`, `OS_INSTALLING`, `PROFILE_APPLYING`, `HARDENING`, `FIRST_BOOT`, `VALIDATING`, `SUCCESS`,
-10. installer and validation logs are correlated to the InstallationSpec,
-11. terminal reporting revokes runtime credential authority,
-12. the next PXE-first reboot chains the installed local bootloader instead of reinstalling.
+The iPXE Secure Boot variables are policy observations, not remote attestation. The E2E must actually keep firmware Secure Boot enabled and prove that the signed first-stage chain is the one being executed.
 
-The first TPM E2E is intentionally a manual hardware/virtual-TPM gate if CI does not provide a TPM device. Passing normal Go/package CI is necessary but not sufficient to declare this trust path production-ready.
+## Reporter/TPM status
+
+The earlier Debian reporter/initramfs injection design is suspended after failing the real UEFI/vTPM E2E path. The production `.deb` intentionally does **not** contain the reporter executable and production PXE/Studio listener allowlists do not expose the dormant reporter runtime as a completed production feature.
+
+TPM trust, challenge/proof and signed telemetry primitives may continue to have isolated unit/integration tests. A replacement reporter delivery mechanism must be designed around the stabilized Debian installer and pass a separate real UEFI/vTPM gate before it is re-enabled.
+
+The previous requirement to inject a reporter executable into the Debian initrd is obsolete and must not be used as a dev.22 or RC gate.
 
 ## Release gate philosophy
 
-A feature is not complete because unit tests pass. For provisioning features, completion means:
+A feature is not complete because unit tests pass. For provisioning/security features, completion means:
 
-- small deterministic contract tests,
+- deterministic contract tests,
 - focused integration tests for state/boundaries,
-- E2E success path,
-- E2E or integration failure path,
+- source formatting/tests/vet,
+- race detector,
+- vulnerability scan,
+- package install/upgrade smoke where relevant,
+- real E2E success path,
+- real or integration failure path appropriate to the boundary,
 - expected logs/events verified,
 - documentation current.
 
@@ -147,66 +149,78 @@ A feature is not complete because unit tests pass. For provisioning features, co
 We deliberately test failures such as:
 
 - invalid/missing artifact digest,
-- installer never starts,
+- signed boot asset mismatch,
+- Secure Boot required but disabled/unknown/SetupMode,
+- malformed UEFI evidence,
 - invalid/expired lifecycle authentication,
-- tampered signed reporter body/path/timestamp,
+- tampered signed reporter body/path/timestamp in isolated reporter tests,
 - pending/revoked/wrong-machine TPM key,
 - expired or mismatched boot-trust challenge,
-- cancelled assignment attempting secret release,
 - duplicate/replayed event,
 - storage hook reports failure,
 - first-boot validation fails,
-- machine is blocked while assignment exists,
+- Machine is blocked while assignment exists,
 - helper refuses an invalid privileged action.
 
-Failure tests must assert both behavior and observability, but should assert only the relevant error code/event/log fields rather than an entire log stream.
+Failure tests must assert behavior plus the relevant stable error code/log fields, not entire log streams.
 
 ## Observability assertions
 
-Operational tests should verify relevant records contain correlation identifiers and stable error codes.
+Operational tests verify relevant records contain correlation identifiers and stable error codes.
+
+Secure Boot tests verify bounded evidence fields such as:
+
+- `secure_boot_policy`
+- `secure_boot_state`
+- Machine/Installation/Assignment IDs where applicable,
+- signed asset digests where applicable,
+- `SEC023`/`SEC024`/`SEC025` on failure.
 
 Tests must also verify sensitive fixtures are redacted and never persisted in normal logs.
 
-For the reporter path, tests must explicitly guard against logging or persistence of lifecycle plaintext, request authentication material and TPM private data.
-
-Do not assert timestamps, formatting details or unrelated log fields unless they are part of the contract under test.
-
 ## Driver certification
 
-A driver cannot be marked production-ready until it demonstrates:
+A driver cannot be marked production-ready until all claimed capabilities are certified. The driver contract requires artifact resolution, deterministic boot/seed rendering, authenticated telemetry, first-boot behavior, requested-state validation and unattended E2E.
 
-- artifact resolution,
-- deterministic boot render,
-- deterministic seed render,
-- authenticated telemetry,
-- first-boot execution,
-- requested-state validation,
-- full unattended E2E,
-- useful failed-install telemetry.
-
-These requirements should be covered by separate focused tests plus E2E rather than a single oversized driver test.
+Where one capability is temporarily suspended, documentation must say so plainly instead of weakening the contract. The Debian reporter runtime is such a suspended capability today. Secure Boot certification is a separate executable-trust gate and does not imply reporter completion.
 
 ## CI design
 
-CI should remain intentionally small and precise.
+The pull-request lane should remain high-signal:
 
-The normal pull-request lane should prefer a few high-signal jobs rather than dozens of partially overlapping checks:
+1. **Project Constitution**: architecture/document invariants.
+2. **Verify source**: `gofmt`, `go test ./...`, `go vet ./...`, binary/version check.
+3. **Race detector**: `go test -race ./...`.
+4. **Vulnerability scan**: official `govulncheck` with a patched Go toolchain.
+5. **Package smoke**: build/install the `.deb`, service health, required payload and operational asset checks.
 
-1. **contracts/docs**: project constitution and static repository invariants,
-2. **go**: `gofmt`, `go test ./...`, `go vet ./...`,
-3. **package smoke**: build the `.deb`, install it in a clean supported environment and verify required runtime payloads.
+For dev.22 package smoke must verify:
 
-For the Debian reporter slice, package smoke must verify the fixed amd64 reporter executable exists at `/usr/lib/aegispxe/reporters/aegispxe-reporter-amd64` because the PXE boot endpoint serves that exact packaged path.
+- reporter executable is absent,
+- Secure Boot manifest exists,
+- signed `ipxe-shim.efi` and `ipxe.efi` exist,
+- both contain signature tables,
+- runtime health reports `secure_boot_policy=required` and valid package assets,
+- TFTP copies match package-owned signed bytes,
+- stale package-managed TFTP bytes are repaired,
+- discovery accepts a syntactically valid enabled UEFI observation.
 
-Long-running VM provisioning E2E belongs in a dedicated gate and must not be duplicated by giant unit/integration suites. TPM hardware/virtualization behavior is specifically an E2E concern and must not be declared green merely because the Go TPM calls compile.
+Long-running VM E2E remains a dedicated manual/automation gate and is not replaced by package smoke.
 
-CI must not run the same logical test in multiple jobs merely to increase activity. Every job should have a distinct failure meaning.
+## Upgrade and RC matrix
 
-When a CI failure occurs, its job and test name should make the failed contract obvious without reading hundreds of unrelated log lines.
+Before `0.1.0-rc.1`, repeatedly verify:
+
+- upgrade from the deployed dev line preserves `/etc/aegispxe/aegispxe.env`, operator identity material and SQLite state,
+- schema migrations advance atomically,
+- package-managed signed PXE assets refresh safely,
+- at least several consecutive Secure Boot-enabled Debian installations complete,
+- at least one negative platform-security run fails closed with useful logs,
+- local boot remains deterministic after every successful install.
 
 ## Test maintenance
 
-A test that blocks a correct architectural change because it asserts old implementation details should be rewritten or removed, not preserved by compatibility code.
+A test that blocks a correct architectural change because it asserts obsolete implementation details should be rewritten or removed, not preserved by compatibility code.
 
 When production behavior is intentionally replaced, update the smallest relevant contract tests and let E2E verify the complete path.
 
