@@ -27,9 +27,9 @@ type Client struct {
 }
 
 type CredentialMaterial struct {
-	Secret     string
-	Ciphertext []byte
-	ExpiresAt  time.Time
+	Secret      string
+	Ciphertext  []byte
+	ExpiresAt   time.Time
 	Fingerprint string
 }
 
