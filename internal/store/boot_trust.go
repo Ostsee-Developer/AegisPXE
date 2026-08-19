@@ -310,7 +310,7 @@ func (s *Store) CompleteBootTrustChallenge(ctx context.Context, installationID, 
 	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
 	secretHash := sha256.Sum256([]byte(secret))
 	credentialExpiry := now.Add(defaultLifecycleCredentialTTL)
-	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey, []byte(secret), []byte(lifecycleCredentialOAEPLabel))
+	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey, []byte(secret), []byte(lifecycleCredentialOAEPLabel+"\x00"))
 	if err != nil {
 		return boottrust.Release{}, fault.New(fault.BootTrustKeyInvalid, "could not encrypt lifecycle credential to boot trust key", err)
 	}
@@ -375,11 +375,25 @@ func scanBootTrustKey(row rowScanner) (boottrust.Key, error) {
 	}
 	var err error
 	item.FirstSeenAt, err = time.Parse(time.RFC3339Nano, firstSeen)
-	if err != nil { return boottrust.Key{}, fault.New(fault.StorageFailure, "could not parse boot trust key first-seen time", err) }
+	if err != nil {
+		return boottrust.Key{}, fault.New(fault.StorageFailure, "could not parse boot trust key first-seen time", err)
+	}
 	item.LastSeenAt, err = time.Parse(time.RFC3339Nano, lastSeen)
-	if err != nil { return boottrust.Key{}, fault.New(fault.StorageFailure, "could not parse boot trust key last-seen time", err) }
-	if approvedAt != "" { item.ApprovedAt, err = time.Parse(time.RFC3339Nano, approvedAt); if err != nil { return boottrust.Key{}, fault.New(fault.StorageFailure, "could not parse boot trust approval time", err) } }
-	if revokedAt != "" { item.RevokedAt, err = time.Parse(time.RFC3339Nano, revokedAt); if err != nil { return boottrust.Key{}, fault.New(fault.StorageFailure, "could not parse boot trust revocation time", err) } }
+	if err != nil {
+		return boottrust.Key{}, fault.New(fault.StorageFailure, "could not parse boot trust key last-seen time", err)
+	}
+	if approvedAt != "" {
+		item.ApprovedAt, err = time.Parse(time.RFC3339Nano, approvedAt)
+		if err != nil {
+			return boottrust.Key{}, fault.New(fault.StorageFailure, "could not parse boot trust approval time", err)
+		}
+	}
+	if revokedAt != "" {
+		item.RevokedAt, err = time.Parse(time.RFC3339Nano, revokedAt)
+		if err != nil {
+			return boottrust.Key{}, fault.New(fault.StorageFailure, "could not parse boot trust revocation time", err)
+		}
+	}
 	return item, nil
 }
 
@@ -394,9 +408,25 @@ func bootTrustChallengeTx(ctx context.Context, tx *sql.Tx, installationID, chall
 		return boottrust.Challenge{}, fault.New(fault.StorageFailure, "could not read boot trust challenge", err)
 	}
 	var err error
-	item.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); if err != nil { return boottrust.Challenge{}, fault.New(fault.StorageFailure, "could not parse boot trust challenge time", err) }
-	item.ExpiresAt, err = time.Parse(time.RFC3339Nano, expiresAt); if err != nil { return boottrust.Challenge{}, fault.New(fault.StorageFailure, "could not parse boot trust challenge expiry", err) }
-	if usedAt != "" { item.UsedAt, err = time.Parse(time.RFC3339Nano, usedAt); if err != nil { return boottrust.Challenge{}, fault.New(fault.StorageFailure, "could not parse boot trust challenge use time", err) } }
-	if credentialExpiresAt != "" { item.CredentialExpiry, err = time.Parse(time.RFC3339Nano, credentialExpiresAt); if err != nil { return boottrust.Challenge{}, fault.New(fault.StorageFailure, "could not parse boot trust credential expiry", err) } }
+	item.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return boottrust.Challenge{}, fault.New(fault.StorageFailure, "could not parse boot trust challenge time", err)
+	}
+	item.ExpiresAt, err = time.Parse(time.RFC3339Nano, expiresAt)
+	if err != nil {
+		return boottrust.Challenge{}, fault.New(fault.StorageFailure, "could not parse boot trust challenge expiry", err)
+	}
+	if usedAt != "" {
+		item.UsedAt, err = time.Parse(time.RFC3339Nano, usedAt)
+		if err != nil {
+			return boottrust.Challenge{}, fault.New(fault.StorageFailure, "could not parse boot trust challenge use time", err)
+		}
+	}
+	if credentialExpiresAt != "" {
+		item.CredentialExpiry, err = time.Parse(time.RFC3339Nano, credentialExpiresAt)
+		if err != nil {
+			return boottrust.Challenge{}, fault.New(fault.StorageFailure, "could not parse boot trust credential expiry", err)
+		}
+	}
 	return item, nil
 }
