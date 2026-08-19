@@ -150,6 +150,7 @@ func renderLateCommand(spec installation.Spec) (string, error) {
 	authorizedKeysPath := "/target/home/" + username + "/.ssh/authorized_keys"
 	commands := []string{
 		"set -e",
+		`trap "/aegispxe/reporter event --message hardening_failed --error-code INS104_HARDENING_FAILED FAILED" EXIT`,
 		"/aegispxe/reporter event --message 'AegisPXE hardening started' HARDENING",
 		"install -d -m 0755 /target/var/log",
 		marker("late_command", "started"),
@@ -198,6 +199,7 @@ func renderLateCommand(spec installation.Spec) (string, error) {
 		"/aegispxe/reporter install-firstboot --config /aegispxe/reporter.json /target",
 		marker("firstboot_finalizer", "success"),
 		marker("late_command", "success"),
+		"trap - EXIT",
 	)
 	return strings.Join(commands, "; "), nil
 }
