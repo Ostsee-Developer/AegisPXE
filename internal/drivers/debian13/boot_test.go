@@ -62,9 +62,9 @@ func TestValidateSpecRejectsArtifactOutsideTrustedDebianOrigin(t *testing.T) {
 
 func TestValidateSpecRejectsDifferentDriverContractVersion(t *testing.T) {
 	spec := validInstallationSpec()
-	spec.DriverVersion = "2"
+	spec.DriverVersion = "999"
 	if err := ValidateSpec(spec); err == nil {
-		t.Fatal("expected mismatched driver contract version to be rejected")
+		t.Fatal("expected unsupported driver contract version to be rejected")
 	}
 }
 
@@ -76,8 +76,27 @@ func TestValidateSpecRejectsPasswordSSHForStandard(t *testing.T) {
 	}
 }
 
+func TestValidateSpecRejectsMissingSecureBootShimInV2(t *testing.T) {
+	spec := validInstallationSpec()
+	spec.Artifacts = spec.Artifacts[:2]
+	if err := ValidateSpec(spec); err == nil {
+		t.Fatal("expected driver v2 without signed Debian shim to be rejected")
+	}
+}
+
+func TestValidateSpecKeepsLegacyV1Readable(t *testing.T) {
+	spec := validInstallationSpec()
+	spec.DriverVersion = LegacyDriverVersion
+	spec.Artifacts = spec.Artifacts[:2]
+	if err := ValidateSpec(spec); err != nil {
+		t.Fatalf("legacy driver-v1 InstallationSpec should remain readable: %v", err)
+	}
+}
+
 func validInstallationSpec() installation.Spec {
 	keyPayload := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 64)))
+	provenance := "debian:trixie:release=13.6:installer=installer-1"
+	base := "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/installer-1/images/netboot/debian-installer/amd64/"
 	return installation.Spec{
 		ID:              "i_test",
 		MachineID:       "m_test",
@@ -102,24 +121,9 @@ func validInstallationSpec() installation.Spec {
 			Packages: []string{"jq"},
 		},
 		Artifacts: []installation.Artifact{
-			{
-				ID:         "debian13-amd64-netboot-linux",
-				Name:       "linux",
-				SourceURL:  "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/installer-1/images/netboot/debian-installer/amd64/linux",
-				Version:    "installer-1",
-				Digest:     testDigest("a"),
-				Size:       1,
-				Provenance: "debian:trixie:release=13.6:installer=installer-1",
-			},
-			{
-				ID:         "debian13-amd64-netboot-initrd",
-				Name:       "initrd.gz",
-				SourceURL:  "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/installer-1/images/netboot/debian-installer/amd64/initrd.gz",
-				Version:    "installer-1",
-				Digest:     testDigest("b"),
-				Size:       1,
-				Provenance: "debian:trixie:release=13.6:installer=installer-1",
-			},
+			{ID: "debian13-amd64-netboot-linux", Name: "linux", SourceURL: base + "linux", Version: "installer-1", Digest: testDigest("a"), Size: 1, Provenance: provenance},
+			{ID: "debian13-amd64-netboot-initrd", Name: "initrd.gz", SourceURL: base + "initrd.gz", Version: "installer-1", Digest: testDigest("b"), Size: 1, Provenance: provenance},
+			{ID: "debian13-amd64-netboot-shim", Name: "bootnetx64.efi", SourceURL: base + "bootnetx64.efi", Version: "installer-1", Digest: testDigest("c"), Size: 1, Provenance: provenance},
 		},
 		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		Security:              installation.Security{AutomaticSecurityUpdates: true},
