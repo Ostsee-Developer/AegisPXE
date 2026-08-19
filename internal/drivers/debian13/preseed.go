@@ -134,28 +134,36 @@ func renderLateCommand(spec installation.Spec) (string, error) {
 		keys = append(keys, fields[0]+" "+fields[1])
 	}
 
-	keyArgs := make([]string, 0, len(keys))
-	for _, key := range keys {
-		keyArgs = append(keyArgs, shellQuote(key))
+	logPath := "/target/var/log/aegispxe-installer.log"
+	writeLine := func(path, value string) string {
+		return "echo " + shellQuote(value) + " > " + shellQuote(path)
+	}
+	appendLine := func(path, value string) string {
+		return "echo " + shellQuote(value) + " >> " + shellQuote(path)
+	}
+	marker := func(step, result string) string {
+		return appendLine(logPath, "component=aegispxe step="+step+" result="+result)
 	}
 
-	logPath := "/target/var/log/aegispxe-installer.log"
-	marker := func(step, result string) string {
-		return "printf '%s\\n' " + shellQuote("component=aegispxe step="+step+" result="+result) + " >> " + shellQuote(logPath)
-	}
+	authorizedKeysPath := "/target/home/" + username + "/.ssh/authorized_keys"
 	commands := []string{
 		"set -e",
 		"install -d -m 0755 /target/var/log",
 		marker("late_command", "started"),
 		marker("authorized_keys", "started"),
 		"in-target install -d -m 0700 -o " + username + " -g " + username + " /home/" + username + "/.ssh",
-		"printf '%s\\n' " + strings.Join(keyArgs, " ") + " > /target/home/" + username + "/.ssh/authorized_keys",
-		"in-target chown " + username + ":" + username + " /home/" + username + "/.ssh/authorized_keys",
-		"in-target chmod 0600 /home/" + username + "/.ssh/authorized_keys",
+		": > " + shellQuote(authorizedKeysPath),
+	}
+	for _, key := range keys {
+		commands = append(commands, appendLine(authorizedKeysPath, key))
+	}
+	commands = append(commands,
+		"in-target chown "+username+":"+username+" /home/"+username+"/.ssh/authorized_keys",
+		"in-target chmod 0600 /home/"+username+"/.ssh/authorized_keys",
 		marker("authorized_keys", "success"),
 		marker("sudo", "started"),
-		"in-target usermod -aG sudo " + username,
-		"printf '%s\\n' " + shellQuote(username+" ALL=(ALL:ALL) NOPASSWD: ALL") + " > /target/etc/sudoers.d/90-aegispxe-admin",
+		"in-target usermod -aG sudo "+username,
+		writeLine("/target/etc/sudoers.d/90-aegispxe-admin", username+" ALL=(ALL:ALL) NOPASSWD: ALL"),
 		"chmod 0440 /target/etc/sudoers.d/90-aegispxe-admin",
 		marker("sudo", "success"),
 		marker("validate_sudoers", "started"),
@@ -163,9 +171,13 @@ func renderLateCommand(spec installation.Spec) (string, error) {
 		marker("validate_sudoers", "success"),
 		marker("sshd_config", "started"),
 		"mkdir -p /target/etc/ssh/sshd_config.d",
-		"printf '%s\\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' 'PermitEmptyPasswords no' 'PermitRootLogin no' 'PubkeyAuthentication yes' > /target/etc/ssh/sshd_config.d/90-aegispxe.conf",
+		writeLine("/target/etc/ssh/sshd_config.d/90-aegispxe.conf", "PasswordAuthentication no"),
+		appendLine("/target/etc/ssh/sshd_config.d/90-aegispxe.conf", "KbdInteractiveAuthentication no"),
+		appendLine("/target/etc/ssh/sshd_config.d/90-aegispxe.conf", "PermitEmptyPasswords no"),
+		appendLine("/target/etc/ssh/sshd_config.d/90-aegispxe.conf", "PermitRootLogin no"),
+		appendLine("/target/etc/ssh/sshd_config.d/90-aegispxe.conf", "PubkeyAuthentication yes"),
 		"chmod 0644 /target/etc/ssh/sshd_config.d/90-aegispxe.conf",
-		"in-target usermod -p NP " + username,
+		"in-target usermod -p NP "+username,
 		marker("sshd_config", "success"),
 		marker("prepare_sshd_runtime", "started"),
 		"in-target install -d -m 0755 /run/sshd",
@@ -175,11 +187,12 @@ func renderLateCommand(spec installation.Spec) (string, error) {
 		"in-target sshd -t",
 		marker("validate_sshd", "success"),
 		marker("automatic_updates", "started"),
-		"printf '%s\\n' 'APT::Periodic::Update-Package-Lists \"1\";' 'APT::Periodic::Unattended-Upgrade \"1\";' > /target/etc/apt/apt.conf.d/20auto-upgrades",
+		writeLine("/target/etc/apt/apt.conf.d/20auto-upgrades", "APT::Periodic::Update-Package-Lists \"1\";"),
+		appendLine("/target/etc/apt/apt.conf.d/20auto-upgrades", "APT::Periodic::Unattended-Upgrade \"1\";"),
 		"chmod 0644 /target/etc/apt/apt.conf.d/20auto-upgrades",
 		marker("automatic_updates", "success"),
 		marker("late_command", "success"),
-	}
+	)
 	return strings.Join(commands, "; "), nil
 }
 
