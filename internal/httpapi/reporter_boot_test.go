@@ -12,7 +12,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/assignment"
 )
 
-func TestReporterBootScriptUsesSingleCombinedInitrd(t *testing.T) {
+func TestReporterBootScriptUsesKnownGoodSingleInitrdHandoff(t *testing.T) {
 	state, _ := testServer(t)
 	machineRecord, spec := createArmedProvisioningState(t, state, "52:54:00:40:00:72")
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -25,17 +25,30 @@ func TestReporterBootScriptUsesSingleCombinedInitrd(t *testing.T) {
 		t.Fatalf("reporter boot script status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	kernelLine := "kernel http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/linux initrd=initrd.img"
-	combinedLine := "initrd --name initrd.img http://aegispxe.test/boot/installations/" + spec.ID + "/initrd.img"
-	for _, want := range []string{kernelLine, combinedLine, "imgstat"} {
+	kernelLine := "kernel http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/linux auto=true priority=critical interface=auto"
+	initrdLine := "initrd http://aegispxe.test/boot/installations/" + spec.ID + "/initrd.img"
+	for _, want := range []string{kernelLine, initrdLine, "imgstat"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("reporter boot script missing %q: %s", want, body)
 		}
 	}
-	for _, forbidden := range []string{"initrd=initrd.gz initrd=overlay.cpio", "--name overlay.cpio", "/overlay.cpio", "initrd=initrd.magic", "/aegispxe/reporter mode=", "/reporter.json /aegispxe/", "/preseed.cfg /preseed.cfg"} {
+	for _, forbidden := range []string{
+		"initrd=initrd.img",
+		"initrd=initrd.gz",
+		"--name initrd.img",
+		"--name overlay.cpio",
+		"/overlay.cpio",
+		"initrd=initrd.magic",
+		"/aegispxe/reporter mode=",
+		"/reporter.json /aegispxe/",
+		"/preseed.cfg /preseed.cfg",
+	} {
 		if strings.Contains(body, forbidden) {
-			t.Fatalf("boot script still contains old multi-initrd or magic injection fragment %q: %s", forbidden, body)
+			t.Fatalf("boot script contains firmware-specific or legacy initrd fragment %q: %s", forbidden, body)
 		}
+	}
+	if strings.Count(body, "\ninitrd ") != 1 {
+		t.Fatalf("boot script must hand iPXE exactly one initrd: %s", body)
 	}
 	if strings.Contains(body, spec.LifecycleCredentialID) || strings.Contains(strings.ToLower(body), "authorization") || strings.Contains(strings.ToLower(body), "token=") {
 		t.Fatal("reporter-enabled boot script leaked lifecycle authentication material")
