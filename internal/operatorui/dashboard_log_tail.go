@@ -12,9 +12,15 @@ func (h *DashboardHandler) dashboardLogTail(w http.ResponseWriter, r *http.Reque
 	if _, ok := h.requireDashboardPageJSON(w, r); !ok {
 		return
 	}
-	before, err := strconv.ParseUint(strings.TrimSpace(r.URL.Query().Get("before")), 10, 64)
-	if err != nil || before == 0 {
-		before = h.logs.LatestSequence()
+	rawBefore := strings.TrimSpace(r.URL.Query().Get("before"))
+	before := h.logs.LatestSequence()
+	if rawBefore != "" {
+		parsed, err := strconv.ParseUint(rawBefore, 10, 64)
+		if err != nil {
+			writeDashboardJSON(w, http.StatusBadRequest, map[string]string{"message": "invalid log sequence"})
+			return
+		}
+		before = parsed
 	}
 	entries := h.logs.TailThrough(before, dashboardInitialLogTail)
 	out := make([]map[string]any, 0, len(entries))
