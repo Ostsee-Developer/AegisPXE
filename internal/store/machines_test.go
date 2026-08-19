@@ -41,6 +41,31 @@ func TestDiscoverMachineIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestRecentEventsReturnsBoundedChronologicalTail(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	obs := machine.Observation{MAC: "BC:24:11:AA:BB:DD", Architecture: "amd64", Firmware: "uefi"}
+	first, _, err := store.DiscoverMachine(ctx, obs, "req_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, requestID := range []string{"req_2", "req_3", "req_4", "req_5"} {
+		if _, _, err := store.DiscoverMachine(ctx, obs, requestID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recent, err := store.RecentEvents(ctx, event.EntityMachine, first.ID, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 3 || recent[0].RequestID != "req_3" || recent[2].RequestID != "req_5" {
+		t.Fatalf("unexpected recent event tail: %+v", recent)
+	}
+	if recent[0].Sequence >= recent[1].Sequence || recent[1].Sequence >= recent[2].Sequence {
+		t.Fatalf("recent events are not chronological: %+v", recent)
+	}
+}
+
 func TestDiscoverMachineRejectsIdentityConflict(t *testing.T) {
 	store := testStore(t)
 	ctx := context.Background()
