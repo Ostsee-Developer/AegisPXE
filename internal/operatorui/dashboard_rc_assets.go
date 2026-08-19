@@ -149,6 +149,19 @@ const dashboardRCJS = `
   const view = document.querySelector("[data-live-logs]");
   if (!filter || !view) return;
 
+  const decorateLine = entry => {
+    const line = document.createElement("div");
+    line.className = "log-line";
+    line.dataset.sequence = String(entry.sequence || "");
+    try {
+      const parsed = JSON.parse(entry.line);
+      const level = String(parsed.level || "").toLowerCase();
+      if (level === "warn" || level === "error") line.classList.add(level);
+    } catch (_) {}
+    line.textContent = entry.line;
+    return line;
+  };
+
   const applyFilter = () => {
     const needle = filter.value.trim().toLowerCase();
     view.querySelectorAll(".log-line").forEach(line => {
@@ -158,5 +171,16 @@ const dashboardRCJS = `
 
   filter.addEventListener("input", applyFilter);
   new MutationObserver(applyFilter).observe(view, {childList: true});
+
+  fetch("/ui/api/logs/tail", {credentials:"same-origin", headers:{"Accept":"application/json"}})
+    .then(response => response.ok ? response.json() : Promise.reject(new Error("tail unavailable")))
+    .then(payload => {
+      const fragment = document.createDocumentFragment();
+      (payload.entries || []).forEach(entry => fragment.appendChild(decorateLine(entry)));
+      view.prepend(fragment);
+      applyFilter();
+      view.scrollTop = view.scrollHeight;
+    })
+    .catch(() => {});
 })();
 `
