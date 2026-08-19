@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -31,7 +33,8 @@ func TestReporterTelemetryAcceptsValidMACAndRejectsBodyTamper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := New(state, testLogger(), "test")
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	server := New(state, logger, "test")
 	handler := server.HandlerWithBootTrust()
 
 	body, err := json.Marshal(map[string]any{
