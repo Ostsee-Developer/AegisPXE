@@ -98,3 +98,11 @@ jobs:
             --data-urlencode 'setup_mode=00' \
             http://127.0.0.1:8090/api/v1/discovery.ipxe)"
           grep -Fq 'pending_approval' <<<"$decision"
+
+      - name: Upload Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegispxe-0.1.0-dev.22-deb
+          path: dist/aegispxe_*.deb
+          if-no-files-found: error
+          retention-days: 7
