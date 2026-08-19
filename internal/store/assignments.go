@@ -11,6 +11,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/event"
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
+	"github.com/Ostsee-Developer/AegisPXE/internal/lifecycle"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
 )
 
@@ -106,6 +107,9 @@ func (s *Store) ArmInstallation(ctx context.Context, machineID, installationID, 
 	) VALUES(?,?,?,?,?,?,?,?,?)`, item.ID, item.MachineID, item.InstallationID, item.State, item.TrustRequirement,
 		item.ArmedAt.Format(time.RFC3339Nano), item.ArmedBy, "", ""); err != nil {
 		return assignment.Assignment{}, s.storageError("persist armed assignment", err)
+	}
+	if err := appendServerLifecycleEventTx(ctx, tx, installationID, lifecycle.StageQueued, "server:queued:"+installationID, "installation queued for next destructive PXE boot", requestID, now); err != nil {
+		return assignment.Assignment{}, s.storageError("persist installation queued lifecycle event", err)
 	}
 	if err := appendEventTx(ctx, tx, event.Event{
 		EntityType: event.EntityInstallation,
