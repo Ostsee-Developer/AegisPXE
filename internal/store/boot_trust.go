@@ -362,8 +362,6 @@ func bootTrustKeyTx(ctx context.Context, tx *sql.Tx, machineID, fingerprint stri
 	return scanBootTrustKey(row)
 }
 
-type rowScanner interface{ Scan(dest ...any) error }
-
 func scanBootTrustKey(row rowScanner) (boottrust.Key, error) {
 	var item boottrust.Key
 	var firstSeen, lastSeen, approvedAt, revokedAt string
