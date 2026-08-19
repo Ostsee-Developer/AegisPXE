@@ -19,7 +19,7 @@ A production-capable driver must implement all of these concerns:
 9. deterministic tests,
 10. E2E test fixture/plan.
 
-A driver without authenticated telemetry or validation is incomplete and cannot be marked production-ready.
+A driver without telemetry or validation is incomplete and cannot be marked production-ready. Production telemetry must also satisfy the authentication contract for that driver.
 
 ## Conceptual Go interface
 
