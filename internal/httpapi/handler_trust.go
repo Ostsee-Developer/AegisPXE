@@ -11,5 +11,5 @@ func (s *Server) HandlerWithBootTrust() http.Handler {
 	s.registerReporterTelemetry(mux)
 	s.registerReporterBoot(mux)
 	mux.Handle("/", s.Handler())
-	return mux
+	return ensureRequestContext(s.logger, mux)
 }
