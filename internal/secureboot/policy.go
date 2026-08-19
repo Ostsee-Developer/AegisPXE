@@ -39,7 +39,11 @@ func Observe(firmware, secureBootHex, setupModeHex string) (State, error) {
 	if firmware != "efi" {
 		return StateUnsupported, nil
 	}
-	if secureBootHex == "" && setupModeHex == "" {
+	// Some UEFI/iPXE combinations may expose only one of the two variables.
+	// Partial evidence is useful for inventory but must never be promoted to an
+	// enabled assertion. Required policy therefore treats it as unknown and
+	// fails closed at the provisioning gate instead of dropping discovery.
+	if secureBootHex == "" || setupModeHex == "" {
 		return StateUnknown, nil
 	}
 	if !validFlag(secureBootHex) || !validFlag(setupModeHex) {
