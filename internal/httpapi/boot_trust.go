@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Ostsee-Developer/AegisPXE/internal/boottrust"
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 )
 
@@ -176,5 +175,3 @@ func (s *Server) bootTrustRejected(r *http.Request, installationID, code, cause 
 		"cause", cause,
 	)
 }
-
-var _ = boottrust.KeyApproved
