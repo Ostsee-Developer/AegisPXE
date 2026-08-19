@@ -30,11 +30,11 @@ func TestResolvePinsVersionedVerifiedArtifacts(t *testing.T) {
 	resolver := &ArtifactResolver{
 		baseURL: debianBaseURL,
 		fetcher: mapFetcher{content: map[string][]byte{
-			debianBaseURL + "/dists/trixie/InRelease":                  []byte("signed"),
-			base + "/SHA256SUMS":                                       manifest,
-			base + "/netboot/debian-installer/amd64/linux":             kernel,
-			base + "/netboot/debian-installer/amd64/initrd.gz":         initrd,
-			base + "/netboot/debian-installer/amd64/bootnetx64.efi":    shim,
+			debianBaseURL + "/dists/trixie/InRelease":               []byte("signed"),
+			base + "/SHA256SUMS":                                    manifest,
+			base + "/netboot/debian-installer/amd64/linux":          kernel,
+			base + "/netboot/debian-installer/amd64/initrd.gz":      initrd,
+			base + "/netboot/debian-installer/amd64/bootnetx64.efi": shim,
 		}},
 		verifier: staticVerifier{content: release},
 		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
