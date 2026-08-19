@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Ostsee-Developer/AegisPXE/internal/artifact"
 	"github.com/Ostsee-Developer/AegisPXE/internal/drivers/debian13"
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/initramfs"
@@ -24,6 +25,7 @@ func (s *Server) registerReporterBoot(mux *http.ServeMux) {
 	mux.HandleFunc("GET /boot/installations/{id}/reporter", s.installationReporterBinary)
 	mux.HandleFunc("GET /boot/installations/{id}/reporter.json", s.installationReporterConfig)
 	mux.HandleFunc("GET /boot/installations/{id}/overlay.cpio", s.installationReporterOverlay)
+	mux.HandleFunc("GET /boot/installations/{id}/initrd.img", s.installationReporterCombinedInitrd)
 }
 
 func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *http.Request) {
@@ -48,8 +50,7 @@ func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *ht
 	installationID := url.PathEscape(material.Spec.ID)
 	prefix := base + "/boot/installations/" + installationID
 	kernelURL := prefix + "/artifacts/linux"
-	initrdURL := prefix + "/artifacts/initrd.gz"
-	overlayURL := prefix + "/overlay.cpio"
+	combinedInitrdURL := prefix + "/initrd.img"
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -57,24 +58,16 @@ func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *ht
 	_, _ = fmt.Fprintf(w, "echo AegisPXE Debian 13 installation %s with TPM reporter\n", ipxeSafe(material.Spec.ID))
 	_, _ = fmt.Fprintln(w, "imgfree")
 	if material.Machine.Firmware == "efi" {
-		// UEFI Linux uses the EFI virtual filesystem for initrds. Name both real
-		// initramfs archives explicitly and pass both names on the kernel command
-		// line. This avoids depending on initrd.magic aggregation semantics while
-		// still letting Linux unpack Debian's gzip initrd followed by our newc
-		// reporter/preseed overlay.
-		_, _ = fmt.Fprintf(w, "kernel %s initrd=initrd.gz initrd=overlay.cpio%s || goto boot_failed\n", kernelURL, args)
-		_, _ = fmt.Fprintf(w, "initrd --name initrd.gz %s || goto boot_failed\n", initrdURL)
-		// The overlay is deliberately the final network object. It contains the
-		// reporter, non-secret reporter config and preseed.cfg, and its successful
-		// serving commits the one-shot destructive handoff.
-		_, _ = fmt.Fprintf(w, "initrd --name overlay.cpio %s || goto boot_failed\n", overlayURL)
+		// Give the EFI stub one initrd object. AegisPXE concatenates the verified
+		// Debian gzip initramfs with an aligned uncompressed newc overlay. Linux
+		// natively supports this buffer format and we avoid firmware/iPXE
+		// multi-initrd handoff differences entirely.
+		_, _ = fmt.Fprintf(w, "kernel %s initrd=initrd.img%s || goto boot_failed\n", kernelURL, args)
+		_, _ = fmt.Fprintf(w, "initrd --name initrd.img %s || goto boot_failed\n", combinedInitrdURL)
 	} else {
 		_, _ = fmt.Fprintf(w, "kernel %s%s || goto boot_failed\n", kernelURL, args)
-		_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", initrdURL)
-		_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", overlayURL)
+		_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", combinedInitrdURL)
 	}
-	// Keep image names visible during development. If EFI handoff fails again,
-	// the console immediately shows exactly what iPXE has loaded and selected.
 	_, _ = fmt.Fprintln(w, "imgstat")
 	_, _ = fmt.Fprintln(w, "boot || goto boot_failed")
 	_, _ = fmt.Fprintln(w, ":boot_failed")
@@ -90,7 +83,106 @@ func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *ht
 		"assignment_id", material.Assignment.ID,
 		"driver_id", material.Spec.DriverID,
 		"driver_version", material.Spec.DriverVersion,
-		"initramfs_strategy", "explicit_named_initrds",
+		"initramfs_strategy", "single_combined_initrd",
+		"result", "success",
+		"duration_ms", time.Since(started).Milliseconds(),
+	)
+}
+
+func (s *Server) installationReporterCombinedInitrd(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	material, err := s.loadPublicBootContext(r.Context(), r.PathValue("id"), requestID(r.Context()), "serve_reporter_combined_initrd")
+	if err != nil {
+		s.writeBootMaterialError(w, r, err)
+		return
+	}
+	if err := debian13.ValidateSpec(material.Spec); err != nil {
+		writeAPIError(w, http.StatusConflict, fault.DriverSpecUnsupported, "installation is not bootable by the pinned driver")
+		return
+	}
+
+	descriptor, ok := installationArtifactByName(material.Spec.Artifacts, "initrd.gz")
+	if !ok {
+		writeAPIError(w, http.StatusConflict, fault.DriverRenderFailed, "installation initrd artifact is missing")
+		return
+	}
+	baseInitrd, err := artifact.NewHTTPLoader(s.logger).Load(r.Context(), descriptor, requestID(r.Context()), material.Spec.ID)
+	if err != nil {
+		code := fault.Code(err)
+		if code == "" {
+			code = fault.ArtifactFetchFailed
+		}
+		writeAPIError(w, http.StatusBadGateway, code, "verified Debian initrd unavailable")
+		return
+	}
+
+	bundle, err := debian13.RenderSeed(r.Context(), s.logger, material.Spec, requestID(r.Context()))
+	if err != nil {
+		code := fault.Code(err)
+		if code == "" {
+			code = fault.DriverRenderFailed
+		}
+		writeAPIError(w, http.StatusConflict, code, "installation initrd could not render preseed")
+		return
+	}
+	reporter, err := readReporterBinary()
+	if err != nil {
+		writeAPIError(w, http.StatusServiceUnavailable, fault.DriverRenderFailed, "Debian reporter unavailable")
+		return
+	}
+	config, err := reporterConfigJSON(r, material)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, fault.DriverRenderFailed, "reporter configuration could not be rendered")
+		return
+	}
+	overlay, err := initramfs.BuildNewc([]initramfs.Entry{
+		{Path: "aegispxe", Mode: initramfs.ModeDirectory | 0o755},
+		{Path: "aegispxe/reporter", Mode: initramfs.ModeRegular | 0o755, Data: reporter},
+		{Path: "aegispxe/reporter.json", Mode: initramfs.ModeRegular | 0o600, Data: config},
+		{Path: "preseed.cfg", Mode: initramfs.ModeRegular | 0o600, Data: bundle.Content},
+	})
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, fault.DriverRenderFailed, "Debian reporter overlay could not be built")
+		return
+	}
+	combined, err := initramfs.Combine(baseInitrd, overlay)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, fault.DriverRenderFailed, "combined Debian initrd could not be built")
+		return
+	}
+
+	consumed, err := s.state.ConsumeAssignment(r.Context(), material.Spec.ID, requestID(r.Context()), "system:pxe")
+	if err != nil {
+		code := fault.Code(err)
+		if code == "" {
+			code = fault.StorageFailure
+		}
+		s.logger.ErrorContext(r.Context(), "combined initrd handoff could not be consumed", "component", "httpapi.provisioning", "operation", "consume_combined_initrd_handoff", "request_id", requestID(r.Context()), "machine_id", material.Machine.ID, "installation_id", material.Spec.ID, "assignment_id", material.Assignment.ID, "error_code", code, "result", "failure", "cause", err.Error())
+		writeAPIError(w, http.StatusConflict, code, "installation boot handoff could not be committed")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(len(combined)))
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(combined); err != nil {
+		s.logger.WarnContext(r.Context(), "combined initrd response write failed after one-shot handoff consumption", "component", "httpapi.provisioning", "operation", "serve_reporter_combined_initrd", "request_id", requestID(r.Context()), "machine_id", material.Machine.ID, "installation_id", material.Spec.ID, "assignment_id", consumed.ID, "error_code", fault.DriverRenderFailed, "result", "response_write_failed", "duration_ms", time.Since(started).Milliseconds())
+		return
+	}
+	s.logger.InfoContext(r.Context(), "one-shot assignment handoff committed and combined reporter initrd served",
+		"component", "httpapi.provisioning",
+		"operation", "serve_reporter_combined_initrd",
+		"request_id", requestID(r.Context()),
+		"machine_id", material.Machine.ID,
+		"installation_id", material.Spec.ID,
+		"assignment_id", consumed.ID,
+		"assignment_state", consumed.State,
+		"base_initrd_bytes", len(baseInitrd),
+		"overlay_bytes", len(overlay),
+		"combined_initrd_bytes", len(combined),
+		"reporter_bytes", len(reporter),
+		"seed_bytes", len(bundle.Content),
 		"result", "success",
 		"duration_ms", time.Since(started).Milliseconds(),
 	)
