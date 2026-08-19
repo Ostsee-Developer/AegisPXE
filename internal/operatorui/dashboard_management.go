@@ -1,6 +1,7 @@
 package operatorui
 
 import (
+	"encoding/json"
 	"html/template"
 	"net/http"
 	"strings"
@@ -10,9 +11,8 @@ import (
 )
 
 type machineManagementView struct {
-	Session   any
-	Machine   machine.Machine
-	CanDelete bool
+	Session any
+	Machine machine.Machine
 }
 
 type installationManagementView struct {
@@ -26,6 +26,25 @@ var machineManagementTemplate = template.Must(template.New("machine-management")
 
 var installationManagementTemplate = template.Must(template.New("installation-management").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AegisPXE · Delete installation</title><link rel="stylesheet" href="/ui/assets/dashboard.css"></head><body><div class="app"><main class="content" style="grid-column:1/-1;max-width:980px;margin:0 auto;width:100%"><header class="page-head"><div><p class="eyebrow">AEGISPXE · INSTALLATION</p><h1>Manage installation</h1><p class="muted">Deletion removes the immutable spec and its correlated lifecycle/log/trust runtime history.</p></div><div class="actions"><a class="button secondary" href="/ui/installations/{{.InstallationID}}">Back</a></div></header><section class="panel detail-panel"><div class="panel-head"><div><h2>{{.Hostname}}</h2><p class="mono">{{.InstallationID}} · {{.MachineID}}</p></div></div><div class="detail-body">{{if .Session.IsAdmin}}<div class="section"><div class="section-head"><div><h3>Delete installation</h3><p>An ARMED assignment must be cancelled first. This operation cannot be undone.</p></div></div><form method="post" action="/ui/installations/{{.InstallationID}}/delete"><input type="hidden" name="csrf" value="{{.Session.CSRFToken}}"><label>Type the installation ID to confirm<input name="confirm" autocomplete="off" value="" placeholder="{{.InstallationID}}"></label><div class="card-actions"><button class="button danger" type="submit">Delete installation</button></div></form></div>{{else}}<div class="notice warn">Administrator role is required for deletion.</div>{{end}}</div></section></main></div></body></html>`))
 
+func (h *DashboardHandler) dashboardMachineMetadata(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireDashboardPage(w, r); !ok {
+		return
+	}
+	items, err := h.state.Machines(r.Context())
+	if err != nil {
+		h.writeDashboardError(w, r, "machine_metadata", err)
+		return
+	}
+	metadata := make(map[string]map[string]string, len(items))
+	for _, item := range items {
+		metadata[item.ID] = map[string]string{"nickname": item.Nickname}
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if err := json.NewEncoder(w).Encode(map[string]any{"machines": metadata}); err != nil {
+		h.logger.WarnContext(r.Context(), "machine metadata response write failed", "component", "operator.machine", "operation", "metadata", "request_id", requestID(r), "error_code", fault.StorageFailure, "result", "response_write_failed")
+	}
+}
+
 func (h *DashboardHandler) dashboardMachineManagement(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireDashboardPage(w, r)
 	if !ok {
@@ -37,7 +56,7 @@ func (h *DashboardHandler) dashboardMachineManagement(w http.ResponseWriter, r *
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := machineManagementTemplate.Execute(w, machineManagementView{Session: session, Machine: item, CanDelete: session.IsAdmin()}); err != nil {
+	if err := machineManagementTemplate.Execute(w, machineManagementView{Session: session, Machine: item}); err != nil {
 		h.logger.ErrorContext(r.Context(), "machine management page render failed", "component", "operator.machine", "operation", "manage", "request_id", requestID(r), "machine_id", item.ID, "error_code", fault.StorageFailure, "result", "failure", "cause", err.Error())
 	}
 }
