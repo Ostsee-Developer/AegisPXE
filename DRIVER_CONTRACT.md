@@ -12,14 +12,14 @@ A production-capable driver must implement all of these concerns:
 2. artifact resolution and integrity metadata,
 3. boot specification rendering,
 4. unattended seed/configuration rendering,
-5. installer telemetry integration,
+5. authenticated installer telemetry integration,
 6. first-boot runtime integration,
 7. validation integration,
 8. capability reporting,
 9. deterministic tests,
 10. E2E test fixture/plan.
 
-A driver without telemetry or validation is incomplete and cannot be marked production-ready.
+A driver without authenticated telemetry or validation is incomplete and cannot be marked production-ready.
 
 ## Conceptual Go interface
 
@@ -80,19 +80,48 @@ Drivers do not receive arbitrary administrator-provided shell commands as part o
 
 The BootSpec is a deterministic derivative of the immutable InstallationSpec. It is not an independent desired-state record and must not be persisted as a second source of truth.
 
-Boot rendering must not embed secrets in public paths, kernel arguments or logs. Fetching or rendering boot material does not imply `INSTALLER_STARTED` and does not consume an assignment.
+Boot rendering must not embed secrets in public paths, kernel arguments or logs. Fetching or rendering boot material does not imply `INSTALLER_STARTED`.
+
+Assignment consumption follows the separate one-shot public handoff contract in ADR 0005. A driver must not reinterpret assignment consumption as lifecycle progress.
 
 ## Seed contract
 
-Seed/configuration material is installation-scoped and may be requested multiple times. Drivers must not assume one fetch equals one installer start.
+Seed/configuration material is installation-scoped. Drivers must document how the native installer locates its seed and which requests are expected during a healthy installation.
 
-The driver documents how the native installer locates its seed and which requests are expected during a healthy installation.
+When a seed is intentionally the final object of a destructive public handoff, its serving layer may consume the one-shot Assignment according to ADR 0005. That scheduling action still does not create installer lifecycle progress.
+
+Secrets must not be inserted into public seed material merely because the native installer makes seed access convenient.
 
 ## Telemetry contract
 
 The driver defines how native installer stages produce authoritative lifecycle events and log streams.
 
-A stage may only be emitted when the native installer has actually reached that stage. The driver must document the evidence/hook used for each emitted event.
+A stage may only be emitted when the native installer has actually reached that stage. The driver must document the native evidence/hook used for each emitted event.
+
+Telemetry transport must authenticate the exact InstallationSpec and preserve idempotency, ordering, source authorization and request freshness. If the boot transport is cleartext, the driver must not send a reusable lifecycle credential in plaintext.
+
+A telemetry integration must also define:
+
+- how its runtime reporter becomes available to the installer,
+- how machine/boot trust is established before credential release,
+- how installer-native logs are bounded and uploaded,
+- what happens when trust cannot be established,
+- how failure telemetry is attempted from every supported installer stage.
+
+### Debian 13 reporter
+
+The Debian 13 Standard driver injects a packaged amd64 reporter binary and non-secret reporter configuration into the installer initrd before the final Preseed object.
+
+Its authoritative boundaries are:
+
+- `preseed/early_command` -> `INSTALLER_STARTED`,
+- `partman/early_command` -> `DISK_PREPARATION`,
+- native `bootstrap-base` syslog evidence -> `OS_INSTALLING`,
+- native `pkgsel` syslog evidence -> `PROFILE_APPLYING`,
+- `preseed/late_command` -> `HARDENING`,
+- installed systemd finalizer -> `FIRST_BOOT`, `VALIDATING`, then `SUCCESS` or `FAILED`.
+
+The reporter establishes explicit TPM-bound trust according to ADR 0007 before authenticated runtime telemetry can proceed. The late hook intentionally waits for that trust boundary rather than silently completing without a usable first-boot finalizer.
 
 ## First-boot contract
 
@@ -101,6 +130,8 @@ Runtime-only operations execute only when the installed OS has booted into the e
 A driver must not start services or apply live-kernel state from a target chroot unless the native platform explicitly guarantees that behavior.
 
 First-boot logic must be idempotent and report success/failure.
+
+If a first-boot credential must cross a reboot boundary, plaintext credential material must not be written to the installed filesystem. The Debian 13 reporter persists only TPM-encrypted lifecycle ciphertext and decrypts it through the same TPM-derived key after reboot.
 
 ## Validation contract
 
@@ -117,7 +148,7 @@ Examples:
 - TPM enrollment matches intent when requested,
 - expected boot mode/security properties are present when testable.
 
-`COMPLETED` may only be emitted after required validation passes.
+`SUCCESS` may only be emitted after required validation passes. Validation failure emits `FAILED` with a stable error code and correlated log context.
 
 ## Capability matrix
 
@@ -134,7 +165,8 @@ Capabilities may include:
 - custom packages,
 - firewall configuration,
 - automatic updates,
-- telemetry level.
+- telemetry level,
+- first-boot validation level.
 
 No feature is silently downgraded.
 
