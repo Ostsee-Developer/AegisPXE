@@ -63,6 +63,12 @@ jobs:
           . /etc/default/tftpd-hpa
           test -f "$TFTP_DIRECTORY/ipxe.efi"
           test -f "$TFTP_DIRECTORY/undionly.kpxe"
+          cmp -s /usr/lib/ipxe/ipxe.efi "$TFTP_DIRECTORY/ipxe.efi"
+          cmp -s /usr/lib/ipxe/undionly.kpxe "$TFTP_DIRECTORY/undionly.kpxe"
+
+          printf 'stale-aegispxe-asset\n' | sudo tee "$TFTP_DIRECTORY/ipxe.efi" >/dev/null
+          sudo /usr/lib/aegispxe/install-pxe-assets
+          cmp -s /usr/lib/ipxe/ipxe.efi "$TFTP_DIRECTORY/ipxe.efi"
 
           decision="$(curl --fail --silent --get \
             --data-urlencode 'mac=52:54:00:12:34:56' \
