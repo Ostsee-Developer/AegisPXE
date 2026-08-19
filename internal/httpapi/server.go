@@ -437,6 +437,7 @@ func (s *Server) allowDiscovery(r *http.Request) bool {
 			if now.Sub(counter.started) >= 2*discoveryWindow {
 				delete(s.limiter.clients, client)
 			}
+		}
 	}
 	if _, known := s.limiter.clients[key]; !known && len(s.limiter.clients) >= 4096 {
 		return false
