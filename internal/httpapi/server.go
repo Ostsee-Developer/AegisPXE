@@ -18,6 +18,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/event"
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
+	"github.com/Ostsee-Developer/AegisPXE/internal/lifecycle"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
 )
@@ -100,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/machines/{id}", s.machine)
 	mux.HandleFunc("GET /api/v1/machines/{id}/events", s.machineEvents)
 	s.registerProvisioning(mux)
+	s.registerTelemetry(mux)
 	return requestLog(s.logger, mux)
 }
 
@@ -156,6 +158,22 @@ func (s *Server) discoveryIPXE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if response.Action == boot.ActionProvision && response.InstallationID != "" {
+		if _, _, err := s.state.RecordServerLifecycle(r.Context(), response.InstallationID, lifecycle.StagePXEBooted,
+			"server:pxe_booted:"+response.InstallationID, "PXE bootloader checked in for armed installation", requestID(r.Context())); err != nil {
+			s.logger.WarnContext(r.Context(), "PXE lifecycle check-in rejected",
+				"component", "installer.telemetry",
+				"operation", "pxe_checkin",
+				"request_id", requestID(r.Context()),
+				"machine_id", response.MachineID,
+				"installation_id", response.InstallationID,
+				"assignment_id", response.AssignmentID,
+				"error_code", fault.Code(err),
+				"result", "rejected",
+				"cause", err.Error(),
+			)
+			s.writeIPXE(w, "Provisioning lifecycle state rejected safely", "server_rejected")
+			return
+		}
 		s.writeProvisioningChain(w, r, response.InstallationID)
 		return
 	}
@@ -357,7 +375,6 @@ func (s *Server) allowDiscovery(r *http.Request) bool {
 			if now.Sub(counter.started) >= 2*discoveryWindow {
 				delete(s.limiter.clients, client)
 			}
-		}
 	}
 	if _, known := s.limiter.clients[key]; !known && len(s.limiter.clients) >= 4096 {
 		return false
