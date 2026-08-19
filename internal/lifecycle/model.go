@@ -85,7 +85,7 @@ func (s Source) Valid() bool {
 }
 
 func ValidateIdempotencyKey(value string) error {
-	if !idempotencyPattern.MatchString(strings.TrimSpace(value)) {
+	if value != strings.TrimSpace(value) || !idempotencyPattern.MatchString(value) {
 		return errors.New("idempotency key is invalid")
 	}
 	return nil
@@ -159,7 +159,12 @@ func CanAdvance(current, next Stage) bool {
 		return false
 	}
 	if next == StageFailed {
-		return current != StageCreated
+		switch current {
+		case StagePXEBooted, StageInstallerStarted, StageDiskPreparation, StageOSInstalling, StageProfileApplying, StageHardening, StageFirstBoot, StageValidating:
+			return true
+		default:
+			return false
+		}
 	}
 	if current == next {
 		return false
