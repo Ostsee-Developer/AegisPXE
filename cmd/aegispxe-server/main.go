@@ -21,6 +21,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/operator"
 	"github.com/Ostsee-Developer/AegisPXE/internal/operatorpasskey"
 	"github.com/Ostsee-Developer/AegisPXE/internal/operatorui"
+	"github.com/Ostsee-Developer/AegisPXE/internal/secureboot"
 	"github.com/Ostsee-Developer/AegisPXE/internal/store"
 )
 
@@ -53,6 +54,57 @@ func main() {
 	logger := observability.New(io.MultiWriter(os.Stdout, logBuffer), level)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	secureBootPolicy, err := secureboot.ParsePolicy(env("AEGISPXE_SECURE_BOOT_POLICY", string(secureboot.PolicyRequired)))
+	if err != nil {
+		logger.Error("startup failed",
+			"component", "boot.secureboot",
+			"operation", "configuration",
+			"error_code", fault.SecureBootRequired,
+			"result", "failure",
+			"error", err,
+		)
+		os.Exit(1)
+	}
+	secureBootAssetDir := env("AEGISPXE_SECURE_BOOT_ASSET_DIR", "/usr/lib/aegispxe/secureboot")
+	secureBootReport, secureBootErr := secureboot.ValidateAssets(secureBootAssetDir)
+	secureBootAssetsValid := secureBootErr == nil
+	if secureBootErr != nil && secureBootPolicy == secureboot.PolicyRequired {
+		logger.Error("startup failed: Secure Boot assets are not valid",
+			"component", "boot.secureboot",
+			"operation", "validate_assets",
+			"secure_boot_policy", secureBootPolicy,
+			"asset_directory", secureBootAssetDir,
+			"error_code", fault.SecureBootAssetsInvalid,
+			"result", "failure",
+			"error", secureBootErr,
+		)
+		os.Exit(1)
+	}
+	if secureBootErr != nil {
+		logger.Warn("Secure Boot assets are unavailable or invalid under non-required policy",
+			"component", "boot.secureboot",
+			"operation", "validate_assets",
+			"secure_boot_policy", secureBootPolicy,
+			"asset_directory", secureBootAssetDir,
+			"error_code", fault.SecureBootAssetsInvalid,
+			"result", "audit_warning",
+			"error", secureBootErr,
+		)
+	} else {
+		logger.Info("Secure Boot assets validated",
+			"component", "boot.secureboot",
+			"operation", "validate_assets",
+			"secure_boot_policy", secureBootPolicy,
+			"asset_directory", secureBootReport.Directory,
+			"upstream_release", secureBootReport.UpstreamRelease,
+			"upstream_commit", secureBootReport.UpstreamCommit,
+			"release_asset_sha256", secureBootReport.ReleaseAssetSHA256,
+			"ipxe_shim_sha256", secureBootReport.Files["ipxe-shim.efi"].SHA256,
+			"ipxe_sha256", secureBootReport.Files["ipxe.efi"].SHA256,
+			"result", "success",
+		)
+	}
 
 	state, err := store.Open(ctx, env("AEGISPXE_DB", "/var/lib/aegispxe/aegispxe.db"), logger)
 	if err != nil {
@@ -102,7 +154,10 @@ func main() {
 		}
 	}
 
-	app := httpapi.New(state, logger, version)
+	app := httpapi.NewWithConfig(state, logger, version, httpapi.Config{
+		SecureBootPolicy:      secureBootPolicy,
+		SecureBootAssetsValid: secureBootAssetsValid,
+	})
 	publicHandler := app.HandlerWithBootTrust()
 	servers := []namedHTTPServer{{
 		name:   "pxe",
@@ -126,6 +181,8 @@ func main() {
 			"address", item.server.Addr,
 			"trusted_proxy_enabled", item.name == "studio" && proxyTrust.Enabled(),
 			"webauthn_enabled", item.name == "studio" && passkeys != nil,
+			"secure_boot_policy", secureBootPolicy,
+			"secure_boot_assets_valid", secureBootAssetsValid,
 			"write_timeout_ms", serverWriteTimeout.Milliseconds(),
 		)
 		go func() {
@@ -170,9 +227,6 @@ func newHTTPServer(address string, handler http.Handler) *http.Server {
 func pxeSurface(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		// dev.21 exposes only the E2E-proven PXE transport. Trust/reporter APIs
-		// remain compiled for isolated tests but are unreachable from production
-		// listeners until reporter delivery is proven on the real UEFI/vTPM path.
 		if path == "/healthz" || strings.HasPrefix(path, "/boot/") || path == "/api/v1/discovery" || path == "/api/v1/discovery.ipxe" {
 			next.ServeHTTP(w, r)
 			return
@@ -188,9 +242,6 @@ func studioSurface(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
 			return
 		}
-		// Inventory and mutations live behind the authenticated /ui surface.
-		// Do not expose the legacy read-only core machine API merely because the
-		// direct source is a trusted proxy; source trust is not a user session.
 		if path == "/healthz" || strings.HasPrefix(path, "/ui/") {
 			next.ServeHTTP(w, r)
 			return
