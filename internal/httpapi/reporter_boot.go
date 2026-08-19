@@ -50,27 +50,32 @@ func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *ht
 	kernelURL := prefix + "/artifacts/linux"
 	initrdURL := prefix + "/artifacts/initrd.gz"
 	overlayURL := prefix + "/overlay.cpio"
-	initrdArgument := ""
-	if material.Machine.Firmware == "efi" {
-		initrdArgument = " initrd=initrd.magic"
-	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = fmt.Fprintln(w, "#!ipxe")
 	_, _ = fmt.Fprintf(w, "echo AegisPXE Debian 13 installation %s with TPM reporter\n", ipxeSafe(material.Spec.ID))
 	_, _ = fmt.Fprintln(w, "imgfree")
-	// Do not depend on iPXE's per-file magic-initrd injection support. Older
-	// packaged iPXE builds can boot Debian's native initrd but cannot reliably
-	// synthesize executable files/directories from initrd command arguments.
-	// We therefore load two real initramfs archives. On UEFI, initrd.magic
-	// explicitly exposes the aggregate to the Linux EFI stub.
-	_, _ = fmt.Fprintf(w, "kernel %s%s%s || goto boot_failed\n", kernelURL, initrdArgument, args)
-	_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", initrdURL)
-	// The overlay is deliberately the final network object. It contains the
-	// reporter, non-secret reporter config and preseed.cfg, and its successful
-	// serving commits the one-shot destructive handoff.
-	_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", overlayURL)
+	if material.Machine.Firmware == "efi" {
+		// UEFI Linux uses the EFI virtual filesystem for initrds. Name both real
+		// initramfs archives explicitly and pass both names on the kernel command
+		// line. This avoids depending on initrd.magic aggregation semantics while
+		// still letting Linux unpack Debian's gzip initrd followed by our newc
+		// reporter/preseed overlay.
+		_, _ = fmt.Fprintf(w, "kernel %s initrd=initrd.gz initrd=overlay.cpio%s || goto boot_failed\n", kernelURL, args)
+		_, _ = fmt.Fprintf(w, "initrd --name initrd.gz %s || goto boot_failed\n", initrdURL)
+		// The overlay is deliberately the final network object. It contains the
+		// reporter, non-secret reporter config and preseed.cfg, and its successful
+		// serving commits the one-shot destructive handoff.
+		_, _ = fmt.Fprintf(w, "initrd --name overlay.cpio %s || goto boot_failed\n", overlayURL)
+	} else {
+		_, _ = fmt.Fprintf(w, "kernel %s%s || goto boot_failed\n", kernelURL, args)
+		_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", initrdURL)
+		_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", overlayURL)
+	}
+	// Keep image names visible during development. If EFI handoff fails again,
+	// the console immediately shows exactly what iPXE has loaded and selected.
+	_, _ = fmt.Fprintln(w, "imgstat")
 	_, _ = fmt.Fprintln(w, "boot || goto boot_failed")
 	_, _ = fmt.Fprintln(w, ":boot_failed")
 	_, _ = fmt.Fprintln(w, "echo AegisPXE installer boot failed safely")
@@ -85,7 +90,7 @@ func (s *Server) installationBootScriptWithReporter(w http.ResponseWriter, r *ht
 		"assignment_id", material.Assignment.ID,
 		"driver_id", material.Spec.DriverID,
 		"driver_version", material.Spec.DriverVersion,
-		"initramfs_strategy", "native_plus_newc_overlay",
+		"initramfs_strategy", "explicit_named_initrds",
 		"result", "success",
 		"duration_ms", time.Since(started).Milliseconds(),
 	)
