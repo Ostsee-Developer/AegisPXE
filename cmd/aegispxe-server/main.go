@@ -183,8 +183,8 @@ func installerPXEAPIPath(path string) bool {
 		return false
 	}
 	for _, suffix := range []string{
-		"/telemetry/events",
-		"/telemetry/logs",
+		"/reporter/events",
+		"/reporter/logs",
 		"/trust/enroll",
 		"/trust/status",
 		"/trust/challenge",
