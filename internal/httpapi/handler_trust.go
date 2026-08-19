@@ -9,6 +9,7 @@ func (s *Server) HandlerWithBootTrust() http.Handler {
 	mux := http.NewServeMux()
 	s.registerBootTrust(mux)
 	s.registerReporterTelemetry(mux)
+	s.registerReporterBoot(mux)
 	mux.Handle("/", s.Handler())
 	return mux
 }
