@@ -178,31 +178,55 @@ func (s *Server) installationPreseed(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusConflict, code, "installation preseed could not be rendered")
 		return
 	}
+
+	consumed, err := s.state.ConsumeAssignment(r.Context(), material.Spec.ID, requestID(r.Context()), "system:pxe")
+	if err != nil {
+		code := fault.Code(err)
+		if code == "" {
+			code = fault.StorageFailure
+		}
+		s.logger.ErrorContext(r.Context(), "installation boot handoff could not be consumed",
+			"component", "httpapi.provisioning",
+			"operation", "consume_boot_handoff",
+			"request_id", requestID(r.Context()),
+			"machine_id", material.Machine.ID,
+			"installation_id", material.Spec.ID,
+			"assignment_id", material.Assignment.ID,
+			"error_code", code,
+			"result", "failure",
+			"cause", err.Error(),
+			"duration_ms", time.Since(started).Milliseconds(),
+		)
+		writeAPIError(w, http.StatusConflict, code, "installation boot handoff could not be committed")
+		return
+	}
+
 	w.Header().Set("Content-Type", bundle.MediaType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(bundle.Content)))
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(bundle.Content); err != nil {
-		s.logger.WarnContext(r.Context(), "installation preseed response write failed",
+		s.logger.WarnContext(r.Context(), "installation preseed response write failed after one-shot handoff consumption",
 			"component", "httpapi.provisioning",
 			"operation", "serve_preseed",
 			"request_id", requestID(r.Context()),
 			"machine_id", material.Machine.ID,
 			"installation_id", material.Spec.ID,
-			"assignment_id", material.Assignment.ID,
+			"assignment_id", consumed.ID,
 			"error_code", fault.DriverRenderFailed,
 			"result", "response_write_failed",
 			"duration_ms", time.Since(started).Milliseconds(),
 		)
 		return
 	}
-	s.logger.InfoContext(r.Context(), "assignment-authorized installation preseed served",
+	s.logger.InfoContext(r.Context(), "one-shot assignment handoff committed and installation preseed served",
 		"component", "httpapi.provisioning",
 		"operation", "serve_preseed",
 		"request_id", requestID(r.Context()),
 		"machine_id", material.Machine.ID,
 		"installation_id", material.Spec.ID,
-		"assignment_id", material.Assignment.ID,
+		"assignment_id", consumed.ID,
+		"assignment_state", consumed.State,
 		"seed_bytes", len(bundle.Content),
 		"result", "success",
 		"duration_ms", time.Since(started).Milliseconds(),
