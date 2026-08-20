@@ -170,6 +170,7 @@ type Build struct {
 	PackageSHA256     string
 	PackageSize       int64
 	ManifestSHA256    string
+	ManifestSignature string
 	CreatedAt         time.Time
 	StartedAt         time.Time
 	ReadyAt           time.Time

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Ostsee-Developer/AegisPXE/internal/agent"
 	"github.com/Ostsee-Developer/AegisPXE/internal/event"
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
@@ -65,33 +66,34 @@ func (s *Store) CreateInstallationSpec(ctx context.Context, spec installation.Sp
 	_, err = tx.ExecContext(ctx, `INSERT INTO installation_specs(
 		id,machine_id,driver_id,driver_version,os_release,architecture,profile_id,profile_revision,
 		profile_json,artifacts_json,storage_json,security_json,lifecycle_credential_id,created_at,created_by
-	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		spec.ID, spec.MachineID, spec.DriverID, spec.DriverVersion, spec.OSRelease, spec.Architecture,
-		spec.ProfileID, spec.ProfileRevision, string(profileJSON), string(artifactsJSON), string(storageJSON), string(securityJSON),
-		spec.LifecycleCredentialID, spec.CreatedAt.Format(time.RFC3339Nano), spec.CreatedBy,
-	)
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, spec.ID, spec.MachineID, spec.DriverID, spec.DriverVersion, spec.OSRelease, spec.Architecture, spec.ProfileID, spec.ProfileRevision, string(profileJSON), string(artifactsJSON), string(storageJSON), string(securityJSON), spec.LifecycleCredentialID, spec.CreatedAt.Format(time.RFC3339Nano), spec.CreatedBy)
 	if err != nil {
 		return installation.Spec{}, s.storageError("persist installation spec", err)
 	}
 	if err := appendServerLifecycleEventTx(ctx, tx, spec.ID, lifecycle.StageCreated, "server:created:"+spec.ID, "immutable installation spec created", requestID, spec.CreatedAt); err != nil {
 		return installation.Spec{}, s.storageError("persist installation lifecycle creation", err)
 	}
-	if err := appendEventTx(ctx, tx, event.Event{
-		EntityType: event.EntityInstallation,
-		EntityID:   spec.ID,
-		Type:       event.InstallationCreated,
-		OccurredAt: spec.CreatedAt,
-		RequestID:  requestID,
-		Actor:      spec.CreatedBy,
-		Message:    "immutable installation spec created",
-	}); err != nil {
+	if err := appendEventTx(ctx, tx, event.Event{EntityType: event.EntityInstallation, EntityID: spec.ID, Type: event.InstallationCreated, OccurredAt: spec.CreatedAt, RequestID: requestID, Actor: spec.CreatedBy, Message: "immutable installation spec created"}); err != nil {
 		return installation.Spec{}, s.storageError("persist installation creation event", err)
 	}
+
+	// Every new InstallationSpec owns exactly one managed agent identity and
+	// exactly one initial queued build. Keeping this in the same transaction
+	// prevents a provisionable installation from existing without its agent.
+	agentRecord, agentBuild, err := createManagedAgentTx(ctx, tx, spec.ID, spec.MachineID, spec.Architecture, nil, agent.UpdateModeManual, requestID, spec.CreatedBy, spec.CreatedAt)
+	if err != nil {
+		if fault.Code(err) != "" {
+			return installation.Spec{}, err
+		}
+		return installation.Spec{}, s.storageError("create installation managed agent", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return installation.Spec{}, s.storageError("commit installation creation", err)
 	}
 
-	s.logger.InfoContext(ctx, "installation spec created", "component", "store.installation", "operation", "create", "request_id", requestID, "installation_id", spec.ID, "machine_id", spec.MachineID, "driver_id", spec.DriverID, "driver_version", spec.DriverVersion, "profile_id", spec.ProfileID, "profile_revision", spec.ProfileRevision, "profile_schema_version", spec.Profile.SchemaVersion, "actor", spec.CreatedBy)
+	s.logger.InfoContext(ctx, "installation spec created", "component", "store.installation", "operation", "create", "request_id", requestID, "installation_id", spec.ID, "machine_id", spec.MachineID, "driver_id", spec.DriverID, "driver_version", spec.DriverVersion, "profile_id", spec.ProfileID, "profile_revision", spec.ProfileRevision, "profile_schema_version", spec.Profile.SchemaVersion, "agent_id", agentRecord.ID, "agent_build_id", agentBuild.ID, "agent_build_state", agentBuild.State, "actor", spec.CreatedBy, "result", "success")
+	s.logManagedAgentCreated(ctx, agentRecord, agentBuild, requestID, spec.CreatedBy)
 	return spec.Clone(), nil
 }
 
@@ -102,9 +104,7 @@ func (s *Store) InstallationSpec(ctx context.Context, id string) (installation.S
 
 	var spec installation.Spec
 	var profileJSON, artifactsJSON, storageJSON, securityJSON, createdAt string
-	if err := row.Scan(&spec.ID, &spec.MachineID, &spec.DriverID, &spec.DriverVersion, &spec.OSRelease, &spec.Architecture,
-		&spec.ProfileID, &spec.ProfileRevision, &profileJSON, &artifactsJSON, &storageJSON, &securityJSON,
-		&spec.LifecycleCredentialID, &createdAt, &spec.CreatedBy); err != nil {
+	if err := row.Scan(&spec.ID, &spec.MachineID, &spec.DriverID, &spec.DriverVersion, &spec.OSRelease, &spec.Architecture, &spec.ProfileID, &spec.ProfileRevision, &profileJSON, &artifactsJSON, &storageJSON, &securityJSON, &spec.LifecycleCredentialID, &createdAt, &spec.CreatedBy); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return installation.Spec{}, fault.New(fault.InstallationNotFound, "installation not found", err)
 		}

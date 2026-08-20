@@ -38,10 +38,6 @@ func (s *Store) CreateManagedAgent(ctx context.Context, installationID string, c
 			return agent.Record{}, fault.New(fault.StorageFailure, "could not allocate request identifier", err)
 		}
 	}
-	agentID, err := idgen.NewUUID()
-	if err != nil {
-		return agent.Record{}, fault.New(fault.StorageFailure, "could not allocate agent identifier", err)
-	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -49,8 +45,8 @@ func (s *Store) CreateManagedAgent(ctx context.Context, installationID string, c
 	}
 	defer tx.Rollback()
 
-	var machineID string
-	if err := tx.QueryRowContext(ctx, `SELECT machine_id FROM installation_specs WHERE id=?`, installationID).Scan(&machineID); err != nil {
+	var machineID, architecture string
+	if err := tx.QueryRowContext(ctx, `SELECT machine_id,architecture FROM installation_specs WHERE id=?`, installationID).Scan(&machineID, &architecture); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return agent.Record{}, fault.New(fault.InstallationNotFound, "installation not found", err)
 		}
@@ -66,66 +62,65 @@ func (s *Store) CreateManagedAgent(ctx context.Context, installationID string, c
 		return agent.Record{}, s.storageError("check managed agent binding", err)
 	}
 
-	capabilitiesJSON, err := json.Marshal(capabilities)
-	if err != nil {
-		return agent.Record{}, fault.New(fault.AgentInvalid, "could not serialize agent capability ceiling", err)
-	}
 	now := s.now().UTC()
-	stamp := now.Format(time.RFC3339Nano)
-	record := agent.Record{
-		ID:                agentID,
-		InstallationID:    installationID,
-		MachineID:         machineID,
-		State:             agent.StatePendingBuild,
-		UpdateMode:        updateMode,
-		UpdateState:       agent.UpdateStateIdle,
-		CapabilityCeiling: capabilities,
-		ActiveGeneration:  0,
-		DesiredGeneration: 1,
-		LastHeartbeatJSON: "{}",
-		CreatedAt:         now,
-		UpdatedAt:         now,
-	}
-	if err := record.Validate(); err != nil {
-		return agent.Record{}, fault.New(fault.AgentInvalid, "managed agent record is invalid", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(
-		id,installation_id,machine_id,state,update_mode,update_state,capability_ceiling_json,
-		active_generation,desired_generation,active_version,last_seen_at,last_heartbeat_json,created_at,updated_at,revoked_at
-	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		record.ID, record.InstallationID, record.MachineID, record.State, record.UpdateMode, record.UpdateState, string(capabilitiesJSON),
-		record.ActiveGeneration, record.DesiredGeneration, record.ActiveVersion, "", record.LastHeartbeatJSON, stamp, stamp, "",
-	); err != nil {
-		return agent.Record{}, s.storageError("persist managed agent", err)
-	}
-	if err := appendEventTx(ctx, tx, event.Event{
-		EntityType: event.EntityAgent,
-		EntityID:   record.ID,
-		Type:       event.AgentCreated,
-		OccurredAt: now,
-		RequestID:  requestID,
-		Actor:      actor,
-		Message:    "managed agent identity created",
-	}); err != nil {
-		return agent.Record{}, s.storageError("persist managed agent creation event", err)
+	record, build, err := createManagedAgentTx(ctx, tx, installationID, machineID, architecture, capabilities, updateMode, requestID, actor, now)
+	if err != nil {
+		if fault.Code(err) != "" {
+			return agent.Record{}, err
+		}
+		return agent.Record{}, s.storageError("create managed agent", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return agent.Record{}, s.storageError("commit managed agent creation", err)
 	}
 
-	s.logger.InfoContext(ctx, "managed agent identity created",
-		"component", "store.agent",
-		"operation", "create",
-		"request_id", requestID,
-		"machine_id", record.MachineID,
-		"installation_id", record.InstallationID,
-		"agent_id", record.ID,
-		"agent_state", record.State,
-		"update_mode", record.UpdateMode,
-		"capability_count", len(record.CapabilityCeiling),
-		"result", "success",
-	)
+	s.logManagedAgentCreated(ctx, record, build, requestID, actor)
 	return record.Clone(), nil
+}
+
+func createManagedAgentTx(ctx context.Context, tx *sql.Tx, installationID, machineID, architecture string, capabilities []string, updateMode agent.UpdateMode, requestID, actor string, now time.Time) (agent.Record, agent.Build, error) {
+	if updateMode == "" {
+		updateMode = agent.UpdateModeManual
+	}
+	if !updateMode.Valid() {
+		return agent.Record{}, agent.Build{}, fault.New(fault.AgentInvalid, "agent update mode is invalid", nil)
+	}
+	normalized, err := agent.NormalizeCapabilityCeiling(capabilities)
+	if err != nil {
+		return agent.Record{}, agent.Build{}, fault.New(fault.AgentInvalid, "agent capability ceiling is invalid", err)
+	}
+	agentID, err := idgen.NewUUID()
+	if err != nil {
+		return agent.Record{}, agent.Build{}, fault.New(fault.StorageFailure, "could not allocate agent identifier", err)
+	}
+	capabilitiesJSON, err := json.Marshal(normalized)
+	if err != nil {
+		return agent.Record{}, agent.Build{}, fault.New(fault.AgentInvalid, "could not serialize agent capability ceiling", err)
+	}
+	now = now.UTC()
+	stamp := now.Format(time.RFC3339Nano)
+	record := agent.Record{ID: agentID, InstallationID: strings.TrimSpace(installationID), MachineID: strings.TrimSpace(machineID), State: agent.StatePendingBuild, UpdateMode: updateMode, UpdateState: agent.UpdateStateIdle, CapabilityCeiling: normalized, ActiveGeneration: 0, DesiredGeneration: 1, LastHeartbeatJSON: "{}", CreatedAt: now, UpdatedAt: now}
+	if err := record.Validate(); err != nil {
+		return agent.Record{}, agent.Build{}, fault.New(fault.AgentInvalid, "managed agent record is invalid", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(
+		id,installation_id,machine_id,state,update_mode,update_state,capability_ceiling_json,
+		active_generation,desired_generation,active_version,last_seen_at,last_heartbeat_json,created_at,updated_at,revoked_at
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, record.ID, record.InstallationID, record.MachineID, record.State, record.UpdateMode, record.UpdateState, string(capabilitiesJSON), record.ActiveGeneration, record.DesiredGeneration, record.ActiveVersion, "", record.LastHeartbeatJSON, stamp, stamp, ""); err != nil {
+		return agent.Record{}, agent.Build{}, fmt.Errorf("persist managed agent: %w", err)
+	}
+	if err := appendEventTx(ctx, tx, event.Event{EntityType: event.EntityAgent, EntityID: record.ID, Type: event.AgentCreated, OccurredAt: now, RequestID: requestID, Actor: actor, Message: "managed agent identity created"}); err != nil {
+		return agent.Record{}, agent.Build{}, fmt.Errorf("persist managed agent creation event: %w", err)
+	}
+	build, err := insertAgentBuildTx(ctx, tx, record, 1, strings.TrimSpace(architecture), normalized, now, requestID, actor)
+	if err != nil {
+		return agent.Record{}, agent.Build{}, err
+	}
+	return record, build, nil
+}
+
+func (s *Store) logManagedAgentCreated(ctx context.Context, record agent.Record, build agent.Build, requestID, actor string) {
+	s.logger.InfoContext(ctx, "managed agent identity and initial build created", "component", "store.agent", "operation", "create", "request_id", requestID, "machine_id", record.MachineID, "installation_id", record.InstallationID, "agent_id", record.ID, "agent_state", record.State, "build_id", build.ID, "build_generation", build.Generation, "build_state", build.State, "update_mode", record.UpdateMode, "capability_count", len(record.CapabilityCeiling), "actor", actor, "result", "success")
 }
 
 func (s *Store) ManagedAgent(ctx context.Context, id string) (agent.Record, error) {
@@ -164,10 +159,7 @@ const managedAgentSelect = `SELECT id,installation_id,machine_id,state,update_mo
 func scanManagedAgent(row scanner) (agent.Record, error) {
 	var record agent.Record
 	var capabilityJSON, lastSeenAt, createdAt, updatedAt, revokedAt string
-	if err := row.Scan(
-		&record.ID, &record.InstallationID, &record.MachineID, &record.State, &record.UpdateMode, &record.UpdateState, &capabilityJSON,
-		&record.ActiveGeneration, &record.DesiredGeneration, &record.ActiveVersion, &lastSeenAt, &record.LastHeartbeatJSON, &createdAt, &updatedAt, &revokedAt,
-	); err != nil {
+	if err := row.Scan(&record.ID, &record.InstallationID, &record.MachineID, &record.State, &record.UpdateMode, &record.UpdateState, &capabilityJSON, &record.ActiveGeneration, &record.DesiredGeneration, &record.ActiveVersion, &lastSeenAt, &record.LastHeartbeatJSON, &createdAt, &updatedAt, &revokedAt); err != nil {
 		return agent.Record{}, err
 	}
 	if err := json.Unmarshal([]byte(capabilityJSON), &record.CapabilityCeiling); err != nil {

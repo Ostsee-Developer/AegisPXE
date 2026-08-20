@@ -51,6 +51,11 @@ const (
 	AgentNotFound                   = "AGT001_AGENT_NOT_FOUND"
 	AgentConflict                   = "AGT002_AGENT_CONFLICT"
 	AgentInvalid                    = "AGT003_AGENT_INVALID"
+	AgentBuildNotReady              = "AGT004_AGENT_BUILD_NOT_READY"
+	AgentBuildNotFound              = "AGT005_AGENT_BUILD_NOT_FOUND"
+	AgentBuildInvalid               = "AGT006_AGENT_BUILD_INVALID"
+	AgentBuildQueueEmpty            = "AGT007_AGENT_BUILD_QUEUE_EMPTY"
+	AgentBuildFailed                = "AGT008_AGENT_BUILD_FAILED"
 	StorageFailure                  = "SYS001_STORAGE_FAILURE"
 )
 
