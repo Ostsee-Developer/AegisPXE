@@ -56,6 +56,8 @@ const (
 	AgentBuildInvalid               = "AGT006_AGENT_BUILD_INVALID"
 	AgentBuildQueueEmpty            = "AGT007_AGENT_BUILD_QUEUE_EMPTY"
 	AgentBuildFailed                = "AGT008_AGENT_BUILD_FAILED"
+	AgentTrustUnavailable           = "AGT009_AGENT_TRUST_UNAVAILABLE"
+	AgentBuilderNotConfigured       = "AGT010_AGENT_BUILDER_NOT_CONFIGURED"
 	StorageFailure                  = "SYS001_STORAGE_FAILURE"
 )
 
