@@ -64,6 +64,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "./$deb"
 
           test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(bash scripts/version.sh project)"
+          test "$(stat -c %a /etc/aegispxe/aegispxe.env)" = "600"
           test ! -e /usr/lib/aegispxe/reporters/aegispxe-reporter-amd64
           test -f /usr/lib/aegispxe/secureboot/manifest.json
           test -f /usr/lib/aegispxe/secureboot/ipxe-shim.efi
