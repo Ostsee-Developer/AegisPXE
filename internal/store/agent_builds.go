@@ -339,7 +339,10 @@ func scanAgentBuild(row scanner) (agent.Build, error) {
 	if build.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
 		return agent.Build{}, fmt.Errorf("parse agent build creation time: %w", err)
 	}
-	for _, item := range []struct { value string; target *time.Time }{{startedAt, &build.StartedAt}, {readyAt, &build.ReadyAt}, {failedAt, &build.FailedAt}, {supersededAt, &build.SupersededAt}, {revokedAt, &build.RevokedAt}} {
+	for _, item := range []struct {
+		value  string
+		target *time.Time
+	}{{startedAt, &build.StartedAt}, {readyAt, &build.ReadyAt}, {failedAt, &build.FailedAt}, {supersededAt, &build.SupersededAt}, {revokedAt, &build.RevokedAt}} {
 		if item.value == "" {
 			continue
 		}

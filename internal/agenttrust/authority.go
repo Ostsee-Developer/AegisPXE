@@ -228,7 +228,7 @@ func createAuthorityFiles(caKeyPath, caCertPath, updateKeyPath string) error {
 		IsCA:                  true,
 		BasicConstraintsValid: true,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature | x509.KeyUsageCRLSign,
-		MaxPathLenZero:         true,
+		MaxPathLenZero:        true,
 	}
 	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caPublic, caPrivate)
 	if err != nil {

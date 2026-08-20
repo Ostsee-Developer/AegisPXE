@@ -206,7 +206,7 @@ func (s *Store) logAssignmentRejected(ctx context.Context, operation, requestID,
 	s.logger.WarnContext(ctx, "installation assignment operation rejected", "component", "store.assignment", "operation", operation, "request_id", requestID, "machine_id", machineID, "installation_id", installationID, "actor", actor, "result", "rejected", "error_code", code, "cause", cause)
 }
 
-type assignmentScanner interface { Scan(...any) error }
+type assignmentScanner interface{ Scan(...any) error }
 
 func scanAssignment(scanner assignmentScanner) (assignment.Assignment, error) {
 	var item assignment.Assignment
