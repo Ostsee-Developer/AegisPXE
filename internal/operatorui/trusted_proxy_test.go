@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +41,9 @@ func TestTrustedProxyInjectsIdentityOnlyForConfiguredDirectPeer(t *testing.T) {
 	}
 	if len(trustedRec.Result().Cookies()) != 0 {
 		t.Fatal("trusted proxy identity unexpectedly created a dashboard session")
+	}
+	if strings.Contains(logs.String(), "trusted proxy identity accepted") {
+		t.Fatal("routine trusted proxy identity injection must not flood INFO logs")
 	}
 
 	gotIdentity = false
