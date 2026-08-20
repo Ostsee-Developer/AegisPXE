@@ -154,6 +154,13 @@ func RequireTrustedProxyOrLoopback(next http.Handler, proxy TrustedProxy, logger
 		logger = slog.Default()
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// /healthz is deliberately non-sensitive and is already exposed by the
+		// PXE listener. Allow GET/HEAD probes on Studio without requiring the
+		// reverse proxy to synthesize browser-facing HTTPS headers.
+		if r != nil && r.URL != nil && r.URL.Path == "/healthz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if addr, ok := remoteAddr(r.RemoteAddr); ok && addr.IsLoopback() {
 			next.ServeHTTP(w, r)
 			return
@@ -162,10 +169,20 @@ func RequireTrustedProxyOrLoopback(next http.Handler, proxy TrustedProxy, logger
 			next.ServeHTTP(w, r)
 			return
 		}
+		path := ""
+		method := ""
+		if r != nil {
+			method = r.Method
+			if r.URL != nil {
+				path = r.URL.Path
+			}
+		}
 		logger.WarnContext(r.Context(), "dashboard request rejected outside trusted proxy boundary",
 			"component", "operator.proxy",
 			"operation", "gate",
 			"remote", remoteHost(r),
+			"method", method,
+			"path", path,
 			"error_code", fault.OperatorSecureTransportRequired,
 			"result", "rejected",
 			"cause", "untrusted_proxy_source_or_protocol",
