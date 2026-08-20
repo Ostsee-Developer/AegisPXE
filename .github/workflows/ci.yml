@@ -99,10 +99,17 @@ jobs:
             http://127.0.0.1:8090/api/v1/discovery.ipxe)"
           grep -Fq 'pending_approval' <<<"$decision"
 
+      - name: Resolve package artifact version
+        id: package_version
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'value=%s\n' "$(bash scripts/version.sh project)" >> "$GITHUB_OUTPUT"
+
       - name: Upload Debian package
         uses: actions/upload-artifact@v4
         with:
-          name: aegispxe-0.1.0-dev.22-deb
+          name: aegispxe-${{ steps.package_version.outputs.value }}-deb
           path: dist/aegispxe_*.deb
           if-no-files-found: error
           retention-days: 7
