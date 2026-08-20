@@ -54,7 +54,7 @@ Arming creates `QUEUED`. The server records `PXE_BOOTED` when the armed machine 
 
 Per ADR 0005, an armed Assignment is consumed at the final public Preseed handoff so the same destructive installer is not selected again on the next PXE boot. `CONSUMED` is scheduling state only. It does not mean `INSTALLER_STARTED`, `SUCCESS`, validation, or cryptographic trust.
 
-A consumed assignment remains eligible for boot-trust completion for that exact InstallationSpec because the reporter cannot prove possession until after the initrd and final Preseed handoff have already occurred. A cancelled assignment never authorizes trust completion or credential release.
+A consumed assignment may remain eligible for an installation-scoped trust protocol when a production reporter exists for that driver. A cancelled assignment never authorizes trust completion or credential release.
 
 ## Event shape
 
@@ -74,15 +74,15 @@ Every lifecycle event contains at least:
 
 ## Authoritative sources
 
-The initial authority mapping is:
+The lifecycle authority mapping is:
 
 - `CREATED`: server,
 - `QUEUED`: server,
 - `PXE_BOOTED`: server boot path,
 - `INSTALLER_STARTED`: authenticated installer reporter,
 - `DISK_PREPARATION`: authenticated installer reporter,
-- `OS_INSTALLING`: authenticated installer reporter from native Debian Installer evidence,
-- `PROFILE_APPLYING`: authenticated installer reporter from native Debian Installer evidence,
+- `OS_INSTALLING`: authenticated installer reporter from native installer evidence,
+- `PROFILE_APPLYING`: authenticated installer reporter from native installer evidence,
 - `HARDENING`: authenticated installer late hook,
 - `FIRST_BOOT`: authenticated installed-OS finalizer,
 - `VALIDATING`: authenticated validator/finalizer,
@@ -91,9 +91,19 @@ The initial authority mapping is:
 
 The state machine rejects events from sources not authorized for that stage.
 
-## TPM-bound reporter trust
+## Current Debian 13 production status
 
-The Debian 13 reporter establishes trust before authenticated runtime telemetry is accepted.
+The Debian reporter runtime is currently suspended from the production package after the earlier initramfs-injection design failed the real UEFI/vTPM E2E path. The production Debian 13 transport intentionally uses the native Debian kernel, native `initrd.gz`, verified Debian shim and final Preseed handoff without a reporter overlay.
+
+Therefore the current packaged Debian driver can authoritatively advance the server-side lifecycle through `PXE_BOOTED`, but it does **not** manufacture `INSTALLER_STARTED`, later installer stages, `SUCCESS` or `FAILED` from HTTP activity, elapsed time, local-boot observations or the existence of an installer log file.
+
+The Debian Preseed late hook still writes bounded local validation markers to `/var/log/aegispxe-installer.log` on the installed host. Those markers are valuable E2E evidence, but until an authenticated production telemetry path exists they are not server-side lifecycle events.
+
+A successful local reboot with Secure Boot enabled and working SSH access is likewise E2E validation evidence, not an authenticated `SUCCESS` lifecycle report.
+
+## Suspended TPM-bound reporter protocol
+
+The following protocol remains the intended trust model for a future production reporter and is covered only by isolated protocol/runtime tests while reporter delivery is suspended:
 
 1. The reporter creates a deterministic RSA key inside TPM 2.0 and sends only its public key for enrollment.
 2. A newly discovered key is `pending` and must be explicitly approved by an administrator in Studio.
@@ -106,9 +116,9 @@ This is explicit TPM-bound enrollment, not manufacturer-chain remote attestation
 
 ## Reporter request authentication
 
-The cleartext PXE listener does not expose the legacy Bearer telemetry routes.
+When a production reporter is reintroduced, the cleartext PXE listener must not expose a reusable plaintext lifecycle credential.
 
-The reporter derives a request MAC key as `SHA256(lifecycle_secret)` and signs every event/log request with HMAC-SHA256 over:
+The suspended protocol derives a request MAC key as `SHA256(lifecycle_secret)` and signs every event/log request with HMAC-SHA256 over:
 
 - protocol version,
 - exact HTTP method,
@@ -121,27 +131,29 @@ The server accepts only a bounded clock-skew window and validates the MAC before
 
 The server stores the fixed-size lifecycle verifier, credential expiry/revocation state and last-use timestamp. Terminal lifecycle state revokes the credential.
 
+These primitives do not make the current Debian package reporter-capable by themselves.
+
 ## Debian 13 reporter boundaries
 
-The Debian 13 driver injects the reporter binary and non-secret reporter configuration into the installer initrd before the final Preseed object.
+The previous design injected a reporter binary and non-secret reporter configuration into the Debian installer initrd and mapped native installer evidence onto authenticated lifecycle events. That delivery design is obsolete for the current production Debian driver and must not be reintroduced as an RC shortcut.
 
-Authoritative hooks are:
+A replacement reporter must preserve the proven Secure Boot installer path:
 
-- `preseed/early_command`: reporter daemon start and `INSTALLER_STARTED`,
-- `partman/early_command`: `DISK_PREPARATION`,
-- Debian Installer native syslog `bootstrap-base` selection: `OS_INSTALLING`,
-- Debian Installer native syslog `pkgsel` selection: `PROFILE_APPLYING`,
-- `preseed/late_command`: `HARDENING` plus first-boot finalizer installation.
+```text
+verified Debian kernel
+-> native Debian initrd.gz
+-> verified Debian bootnetx64.efi via iPXE shim
+-> final Preseed handoff
+-> Debian Installer
+```
 
-Known native installer failure evidence emits `FAILED` with stable error codes. Installer syslog is uploaded in bounded, contiguous installation-scoped chunks and passes through server-side sensitive-line redaction before durable persistence.
-
-The late hook intentionally waits for TPM trust approval and encrypted credential handoff rather than silently completing an installation that cannot authenticate its first-boot finalizer.
+It must define a delivery mechanism that does not repack the native initrd, pass a separate real UEFI/vTPM E2E gate, and only then may it emit authoritative `INSTALLER_STARTED` through terminal lifecycle events.
 
 ## First boot
 
-Before reboot, the installer copies only the encrypted lifecycle credential ciphertext into the installed system. The plaintext lifecycle credential is not written to disk.
+The first-boot finalizer protocol remains part of the lifecycle design but is not active in the current production Debian package while reporter delivery is suspended.
 
-On first boot the same TPM-derived key decrypts the ciphertext and the finalizer reports:
+When re-enabled, first boot must report:
 
 ```text
 FIRST_BOOT
@@ -150,13 +162,13 @@ FIRST_BOOT
        -> FAILED
 ```
 
-Initial validation checks include the configured administrator account, SSH authorized keys and permissions, the AegisPXE SSH hardening fragment, `sshd -t`, and the AegisPXE sudo policy. Validation output is uploaded as an installation-correlated log chunk.
+Required validation is derived from the InstallationSpec and may include the configured administrator account, SSH authorized keys and permissions, SSH configuration, sudo policy and other requested state.
 
-After a terminal report the server revokes the lifecycle credential and the finalizer removes the persisted ciphertext.
+If a lifecycle credential must cross reboot, plaintext credential material must not be written to disk.
 
 ## Idempotency and ordering
 
-Lifecycle state does not regress. Every client report carries an installation-scoped idempotency key.
+Lifecycle state does not regress. Every authenticated client report carries an installation-scoped idempotency key.
 
 - Replaying the same key with identical content returns the already accepted event.
 - Reusing the same key with different content is rejected as a conflict.
@@ -167,7 +179,7 @@ This makes network retries safe without silently rewriting history.
 
 ## Installer log stream
 
-Each accepted log chunk has:
+The production telemetry contract requires each accepted log chunk to have:
 
 - installation-local contiguous sequence number,
 - idempotency key,
@@ -179,6 +191,8 @@ Each accepted log chunk has:
 
 Sequence gaps are rejected. Known sensitive line patterns are redacted before durable storage. The initial limits are 128 KiB per chunk and 16 MiB per installation.
 
+The current Debian package does not ingest installer logs through this authenticated channel because the reporter runtime is suspended. Local `/var/log/aegispxe-installer.log` remains E2E/debug evidence on the installed host only.
+
 ## Machine boot after handoff or terminal state
 
 Once no armed Assignment remains, provisioning policy resolves to local boot. AegisPXE actively attempts the installed local bootloader instead of relying solely on firmware to continue after an iPXE exit.
@@ -187,18 +201,22 @@ For x86_64 UEFI the local boot chain checks Debian vendor loaders, the standard 
 
 ## Timeouts
 
-Timeouts are explicit policy, not inferred progress. A timeout produces a defined error code/event and enough log context to diagnose what report was missing.
+Timeouts are explicit policy, not inferred progress. A telemetry-capable driver may produce a defined timeout error/event with enough log context to diagnose what authoritative report was missing.
 
-Examples:
+Examples once authenticated runtime telemetry is active:
 
 - installer never reported `INSTALLER_STARTED`,
 - no telemetry/log activity after `OS_INSTALLING`,
 - first boot did not report within the configured deadline.
 
+A driver without active authenticated telemetry must not fabricate those stages or timeout transitions from elapsed time alone.
+
 ## UI projection
 
-Studio displays accepted lifecycle events in sequence order and installer logs scoped to the relevant installation. Assignment state and trust gates remain visible but visually distinct from authoritative lifecycle state.
+Studio displays accepted lifecycle events in sequence order and installation-scoped logs that actually exist. Assignment state and trust gates remain visible but visually distinct from authoritative lifecycle state.
+
+For the current Debian production driver, later reporter-owned lifecycle stages remain absent rather than being inferred from a successful Preseed handoff or local reboot.
 
 Studio may show elapsed time. It must never manufacture a completed stage.
 
-See ADR 0005 for one-shot public boot handoff semantics, ADR 0006 for authenticated telemetry persistence, and ADR 0007 for TPM-bound reporter trust and secret-free telemetry transport.
+See ADR 0005 for one-shot public boot handoff semantics, ADR 0006 for authenticated telemetry persistence, and ADR 0007 for the suspended TPM-bound reporter trust protocol.

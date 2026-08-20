@@ -1,6 +1,6 @@
 # Secure Boot E2E matrix
 
-Use a disposable Proxmox VM. Do not merge dev.22 from source-only confidence.
+Use a disposable Proxmox VM. Secure Boot readiness is not established from source-only confidence.
 
 ## Positive fixture
 
@@ -21,13 +21,17 @@ firmware validates ipxe-shim.efi
 -> new Debian driver-v2 InstallationSpec
 -> arm
 -> PXE_BOOTED
--> kernel + native initrd.gz + preseed.cfg
--> iPXE shim command loads Debian bootnetx64.efi
+-> verified Debian kernel
+-> native Debian initrd.gz
+-> iPXE shim command loads verified Debian bootnetx64.efi
+-> final one-shot preseed.cfg handoff
 -> Debian Installer completes
 -> reboot
 -> local Debian shim/grub/kernel boots with Secure Boot still enabled
 -> SSH key login succeeds
 ```
+
+The Debian shim must be fetched before `preseed.cfg`, because successful Preseed delivery consumes the one-shot Assignment.
 
 Required server evidence:
 
@@ -37,6 +41,22 @@ secure_boot_policy=required
 secure_boot_state=enabled
 shim_digest=sha256:...
 ```
+
+### Observed dev.23 positive evidence
+
+The real Proxmox dev.23 fixture has completed one full positive run with these observed outcomes:
+
+- AegisPXE recorded `secure_boot_state=enabled` and selected `action=provision`.
+- The verified kernel, native `initrd.gz` and `bootnetx64.efi` were served before the final Preseed handoff.
+- Preseed delivery consumed the one-shot Assignment only after the Debian shim artifact had been served.
+- Debian 13.6 completed unattended installation.
+- The next PXE decision resolved to `action=local` with no armed Assignment.
+- The installed system booted in UEFI mode with `SecureBoot enabled` after reboot.
+- The ESP contains Debian `shimx64.efi`, `grubx64.efi` and the standard fallback `EFI/BOOT/BOOTX64.EFI` chain.
+- SSH public-key login succeeded; root login and password/keyboard-interactive authentication are disabled.
+- `sshd -t` succeeds, no systemd units are failed, and the AegisPXE late-command log reports success for authorized keys, sudo, sudoers validation, SSH hardening and automatic updates.
+
+This is positive evidence, not the complete RC gate. Repeatability, negative fixtures and upgrade/state preservation remain required.
 
 ## Negative fixture: Secure Boot disabled
 
