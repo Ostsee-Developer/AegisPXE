@@ -58,6 +58,13 @@ const (
 	AgentBuildFailed                = "AGT008_AGENT_BUILD_FAILED"
 	AgentTrustUnavailable           = "AGT009_AGENT_TRUST_UNAVAILABLE"
 	AgentBuilderNotConfigured       = "AGT010_AGENT_BUILDER_NOT_CONFIGURED"
+	AgentEnrollmentRequired         = "AGT011_AGENT_ENROLLMENT_REQUIRED"
+	AgentEnrollmentInvalid          = "AGT012_AGENT_ENROLLMENT_INVALID"
+	AgentEnrollmentExpired          = "AGT013_AGENT_ENROLLMENT_EXPIRED"
+	AgentEnrollmentReplay           = "AGT014_AGENT_ENROLLMENT_REPLAY_REJECTED"
+	AgentCertificateInvalid         = "AGT015_AGENT_CERTIFICATE_INVALID"
+	AgentCertificateRevoked         = "AGT016_AGENT_CERTIFICATE_REVOKED"
+	AgentHeartbeatInvalid           = "AGT017_AGENT_HEARTBEAT_INVALID"
 	StorageFailure                  = "SYS001_STORAGE_FAILURE"
 )
 
