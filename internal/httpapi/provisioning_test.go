@@ -255,5 +255,13 @@ func createProvisioningSpec(t *testing.T, state *store.Store, machineID, request
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, build, err := state.ClaimNextAgentBuild(context.Background(), "0.2.0-dev.1", "req_test_agent_build_claim")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := base64.RawURLEncoding.EncodeToString(make([]byte, 64))
+	if _, err := state.CompleteAgentBuild(context.Background(), build.ID, "aegispxe-agent_test_amd64.deb", strings.Repeat("a", 64), 1024, strings.Repeat("b", 64), signature, "req_test_agent_build_ready"); err != nil {
+		t.Fatal(err)
+	}
 	return spec
 }

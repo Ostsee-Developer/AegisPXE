@@ -133,5 +133,6 @@ func createManagementInstallation(t *testing.T, state *Store, mac string) (machi
 	if err != nil {
 		t.Fatal(err)
 	}
+	makeInitialAgentBuildReady(t, state)
 	return machineRecord, spec
 }
