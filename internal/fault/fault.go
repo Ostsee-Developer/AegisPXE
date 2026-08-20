@@ -48,6 +48,9 @@ const (
 	SecureBootRequired              = "SEC023_SECURE_BOOT_REQUIRED"
 	SecureBootEvidenceInvalid       = "SEC024_SECURE_BOOT_EVIDENCE_INVALID"
 	SecureBootAssetsInvalid         = "SEC025_SECURE_BOOT_ASSETS_INVALID"
+	AgentNotFound                   = "AGT001_AGENT_NOT_FOUND"
+	AgentConflict                   = "AGT002_AGENT_CONFLICT"
+	AgentInvalid                    = "AGT003_AGENT_INVALID"
 	StorageFailure                  = "SYS001_STORAGE_FAILURE"
 )
 

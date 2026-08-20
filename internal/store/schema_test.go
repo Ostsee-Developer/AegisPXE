@@ -101,6 +101,10 @@ func TestSchemaMigrationAddsProvisioningOperatorTrustAndMachineMetadataWithLogs(
 		"installation_log_chunks",
 		"machine_boot_trust_keys",
 		"installation_boot_trust_challenges",
+		"agents",
+		"agent_builds",
+		"agent_enrollment_credentials",
+		"agent_certificates",
 	} {
 		if !tableExistsForTest(t, state.db, table) {
 			t.Fatalf("%s table was not added", table)
@@ -110,7 +114,7 @@ func TestSchemaMigrationAddsProvisioningOperatorTrustAndMachineMetadataWithLogs(
 	if !strings.Contains(logText, `"component":"store.schema"`) ||
 		!strings.Contains(logText, `"operation":"migrate"`) ||
 		!strings.Contains(logText, `"from_version":1`) ||
-		!strings.Contains(logText, `"to_version":8`) ||
+		!strings.Contains(logText, `"to_version":9`) ||
 		!strings.Contains(logText, `"machine_nickname_column_added":true`) ||
 		!strings.Contains(logText, `"machine_secure_boot_state_column_added":true`) ||
 		!strings.Contains(logText, `"machine_secure_boot_observed_at_column_added":true`) ||
@@ -118,6 +122,7 @@ func TestSchemaMigrationAddsProvisioningOperatorTrustAndMachineMetadataWithLogs(
 		!strings.Contains(logText, `"operator_identity_schema_added":true`) ||
 		!strings.Contains(logText, `"installer_telemetry_schema_added":true`) ||
 		!strings.Contains(logText, `"boot_trust_schema_added":true`) ||
+		!strings.Contains(logText, `"agent_schema_added":true`) ||
 		!strings.Contains(logText, `"result":"success"`) {
 		t.Fatalf("migration log missing contract fields: %s", logText)
 	}
