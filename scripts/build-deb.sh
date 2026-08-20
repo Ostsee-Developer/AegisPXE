@@ -45,7 +45,7 @@ install -m 0644 "$SECURE_BOOT_BUILD/manifest.json" "$PKG_ROOT/usr/lib/aegispxe/s
 # but is intentionally not installed into the production package until its
 # Debian Installer delivery path has passed the real UEFI/vTPM E2E gate.
 install -m 0755 packaging/install-pxe-assets.sh "$PKG_ROOT/usr/lib/aegispxe/install-pxe-assets"
-install -m 0644 packaging/aegispxe.env "$PKG_ROOT/etc/aegispxe/aegispxe.env"
+install -m 0600 packaging/aegispxe.env "$PKG_ROOT/etc/aegispxe/aegispxe.env"
 install -m 0644 packaging/aegispxe.service "$PKG_ROOT/lib/systemd/system/aegispxe.service"
 printf '/etc/aegispxe/aegispxe.env\n' > "$PKG_ROOT/DEBIAN/conffiles"
 
@@ -68,6 +68,10 @@ if ! getent group aegispxe >/dev/null 2>&1; then
 fi
 if ! getent passwd aegispxe >/dev/null 2>&1; then
   adduser --system --ingroup aegispxe --no-create-home --home /nonexistent --shell /usr/sbin/nologin aegispxe
+fi
+if [ -f /etc/aegispxe/aegispxe.env ]; then
+  chown root:root /etc/aegispxe/aegispxe.env
+  chmod 0600 /etc/aegispxe/aegispxe.env
 fi
 if [ -x /usr/lib/aegispxe/install-pxe-assets ]; then
   /usr/lib/aegispxe/install-pxe-assets
