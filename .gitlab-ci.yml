@@ -118,17 +118,44 @@ vulnerability_scan:
   script:
     - go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 
-# Dedicated disposable or otherwise isolated Debian runner. This job intentionally
-# installs the freshly built package and exercises systemd/TFTP integration.
+# Merge requests build and inspect the Debian package in an isolated container.
+# No package is installed on the runner host in this job.
+package_build:
+  extends: .go_job
+  stage: package
+  before_script:
+    - umask 077
+    - apt-get update
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl python3 sbsigntool
+  script:
+    - |
+      set -euo pipefail
+      rm -rf dist
+      bash scripts/build-deb.sh
+      version="$(bash scripts/version.sh project)"
+      deb_version="$(bash scripts/version.sh debian)"
+      deb="dist/aegispxe_${version}_amd64.deb"
+      test -f "$deb"
+      test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
+      test "$(dpkg-deb --field "$deb" Version)" = "$deb_version"
+      test "$(dpkg-deb --field "$deb" Architecture)" = "amd64"
+  artifacts:
+    when: on_success
+    expire_in: 1 day
+    paths:
+      - dist/aegispxe_*.deb
+
+# Dedicated isolated Debian runner. This job intentionally installs the freshly
+# built package and exercises systemd/TFTP integration. It only runs on the
+# canonical default branch, so unreviewed merge-request code never reaches the
+# privileged runner.
 package_smoke:
   stage: package
   tags:
     - aegis-release
   resource_group: aegispxe-package-runner
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-    - if: '$CI_PIPELINE_SOURCE == "web"'
   before_script:
     - umask 077
     - sudo -n true
