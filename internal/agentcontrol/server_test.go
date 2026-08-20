@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -71,7 +72,7 @@ func (f *fakeBackend) RecordAgentHeartbeat(_ context.Context, id, fingerprint st
 
 func TestEnrollmentIssuesAgentCertificateWithoutEchoingCredential(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	authority, err := agenttrust.LoadOrCreate(t.TempDir(), logger)
+	authority, err := agenttrust.LoadOrCreate(privateTrustDir(t), logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +128,7 @@ func TestEnrollmentIssuesAgentCertificateWithoutEchoingCredential(t *testing.T) 
 
 func TestHeartbeatRequiresVerifiedMTLSCertificate(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	authority, err := agenttrust.LoadOrCreate(t.TempDir(), logger)
+	authority, err := agenttrust.LoadOrCreate(privateTrustDir(t), logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +186,7 @@ func TestHeartbeatRequiresVerifiedMTLSCertificate(t *testing.T) {
 
 func TestTLSConfigUsesTLS13AndOptionalVerifiedClientCertificate(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	authority, err := agenttrust.LoadOrCreate(t.TempDir(), logger)
+	authority, err := agenttrust.LoadOrCreate(privateTrustDir(t), logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,4 +202,13 @@ func TestTLSConfigUsesTLS13AndOptionalVerifiedClientCertificate(t *testing.T) {
 	if config.MinVersion != tls.VersionTLS13 || config.ClientAuth != tls.VerifyClientCertIfGiven || len(config.Certificates) != 1 || config.ClientCAs == nil {
 		t.Fatalf("unexpected agent control TLS config: %+v", config)
 	}
+}
+
+func privateTrustDir(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
