@@ -17,14 +17,14 @@ func ValidateSpec(spec installation.Spec) error {
 	if spec.DriverID != DriverID {
 		return errors.New("installation spec is assigned to a different driver")
 	}
-	if spec.DriverVersion != DriverVersion {
-		return errors.New("installation spec requires a different Debian driver contract version")
+	if spec.DriverVersion != LegacyDriverVersion && spec.DriverVersion != DriverVersion {
+		return errors.New("installation spec requires an unsupported Debian driver contract version")
 	}
 	if spec.OSRelease != "13" || spec.Architecture != debianArch {
 		return errors.New("installation target is not Debian 13 amd64")
 	}
 	if spec.Storage.Mode != "whole-disk" || spec.Storage.Filesystem != "ext4" || spec.Storage.Encrypted || spec.Storage.TPM2 {
-		return errors.New("Debian 13 driver v1 supports only unencrypted whole-disk ext4 storage")
+		return errors.New("Debian 13 driver supports only unencrypted whole-disk ext4 storage")
 	}
 	if spec.Security.RootLogin || spec.Security.SSHPasswordAuthentication || !spec.Security.AutomaticSecurityUpdates {
 		return errors.New("Debian 13 Standard requires root login disabled, SSH password authentication disabled, and automatic security updates enabled")
@@ -32,8 +32,16 @@ func ValidateSpec(spec installation.Spec) error {
 	if !spec.Profile.Admin.PasswordlessSudo {
 		return errors.New("Debian 13 Standard requires passwordless sudo for the key-only administrator")
 	}
-	if len(spec.Artifacts) != 2 {
-		return errors.New("Debian 13 boot requires exactly kernel and initrd artifacts")
+
+	wantArtifacts := 2
+	if spec.DriverVersion == DriverVersion {
+		wantArtifacts = 3
+	}
+	if len(spec.Artifacts) != wantArtifacts {
+		if spec.DriverVersion == DriverVersion {
+			return errors.New("Debian 13 Secure Boot driver requires exactly kernel, initrd and signed shim artifacts")
+		}
+		return errors.New("legacy Debian 13 driver requires exactly kernel and initrd artifacts")
 	}
 
 	kernel, err := requiredArtifact(spec, "linux")
@@ -44,11 +52,8 @@ func ValidateSpec(spec installation.Spec) error {
 	if err != nil {
 		return err
 	}
-	if kernel.Version != initrd.Version {
-		return errors.New("Debian kernel and initrd are pinned to different installer versions")
-	}
-	if kernel.Provenance != initrd.Provenance {
-		return errors.New("Debian kernel and initrd have different provenance")
+	if kernel.Version != initrd.Version || kernel.Provenance != initrd.Provenance {
+		return errors.New("Debian kernel and initrd are pinned to different installer provenance")
 	}
 	if err := validateDebianArtifactSource(kernel, "netboot/debian-installer/amd64/linux"); err != nil {
 		return fmt.Errorf("kernel artifact source is invalid: %w", err)
@@ -56,12 +61,28 @@ func ValidateSpec(spec installation.Spec) error {
 	if err := validateDebianArtifactSource(initrd, "netboot/debian-installer/amd64/initrd.gz"); err != nil {
 		return fmt.Errorf("initrd artifact source is invalid: %w", err)
 	}
+
+	if spec.DriverVersion == DriverVersion {
+		shim, err := requiredArtifact(spec, "bootnetx64.efi")
+		if err != nil {
+			return err
+		}
+		if kernel.Version != shim.Version || kernel.Provenance != shim.Provenance {
+			return errors.New("Debian Secure Boot shim is pinned to different installer provenance")
+		}
+		if err := validateDebianArtifactSource(shim, "netboot/debian-installer/amd64/bootnetx64.efi"); err != nil {
+			return fmt.Errorf("Secure Boot shim artifact source is invalid: %w", err)
+		}
+	}
 	return nil
 }
 
 func validateRenderableSpec(spec installation.Spec) error {
 	if err := ValidateSpec(spec); err != nil {
 		return err
+	}
+	if spec.DriverVersion != DriverVersion {
+		return errors.New("legacy Debian driver contract is retained for audit and cleanup but cannot be rendered for a new boot")
 	}
 	if strings.TrimSpace(spec.ID) == "" {
 		return errors.New("installation spec must have a server-assigned ID before driver rendering")

@@ -8,7 +8,7 @@ import (
 
 func localBootReason(reason string) bool {
 	switch strings.TrimSpace(reason) {
-	case "local_policy", "installation_not_armed", "pending_approval":
+	case "local_policy", "installation_not_armed", "pending_approval", "secure_boot_required":
 		return true
 	default:
 		return false

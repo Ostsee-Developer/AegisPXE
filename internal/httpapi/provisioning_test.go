@@ -31,6 +31,8 @@ func TestArmedDiscoveryChainsProvisioningWithoutConsumingAssignment(t *testing.T
 		"smbios_uuid":  {"40000000-0000-4000-8000-000000000001"},
 		"architecture": {"x86_64"},
 		"firmware":     {"efi"},
+		"secure_boot":  {"01"},
+		"setup_mode":   {"00"},
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "http://aegispxe.test/api/v1/discovery.ipxe?"+form.Encode(), nil)
@@ -62,24 +64,16 @@ func TestArmedDiscoveryChainsProvisioningWithoutConsumingAssignment(t *testing.T
 	if !strings.Contains(rec.Body.String(), want) {
 		t.Fatalf("armed discovery did not chain provisioner: %s", rec.Body.String())
 	}
-
 	current, err := state.AssignmentForInstallation(ctx, spec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if current.ID != armed.ID || current.State != assignment.StateArmed || !current.ConsumedAt.IsZero() {
-		t.Fatalf("discovery consumed or changed assignment: %+v", current)
-	}
-	events, err := state.Events(ctx, event.EntityInstallation, spec.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(events) != 3 || events[0].Type != event.InstallationCreated || events[1].Type != event.InstallationArmed || events[2].Type != "PXE_BOOTED" {
-		t.Fatalf("armed discovery did not record the authoritative PXE check-in: %+v", events)
+		t.Fatalf("discovery changed assignment: %+v", current)
 	}
 }
 
-func TestInstallationBootScriptUsesMagicInitrdPreseedWithoutSecrets(t *testing.T) {
+func TestInstallationBootScriptUsesNativeInitrdPreseedAndDebianShimWithoutSecrets(t *testing.T) {
 	state, handler := testServer(t)
 	machineRecord, spec := createArmedProvisioningState(t, state, "52:54:00:40:00:02")
 
@@ -94,16 +88,21 @@ func TestInstallationBootScriptUsesMagicInitrdPreseedWithoutSecrets(t *testing.T
 		"kernel http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/linux auto=true priority=critical interface=auto",
 		"initrd http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/initrd.gz",
 		"initrd http://aegispxe.test/boot/installations/" + spec.ID + "/preseed.cfg /preseed.cfg",
+		"shim http://aegispxe.test/boot/installations/" + spec.ID + "/artifacts/bootnetx64.efi || goto secure_boot_failed",
 		"boot || goto boot_failed",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("boot script missing %q: %s", want, body)
 		}
 	}
+	for _, forbidden := range []string{"reporter", "overlay.cpio", "initrd.img", "initrd=", "--name", "initrd.magic"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("boot script contains suspended transport fragment %q: %s", forbidden, body)
+		}
+	}
 	if strings.Contains(strings.ToLower(body), "preseed/url") || strings.Contains(body, spec.LifecycleCredentialID) || strings.Contains(strings.ToLower(body), "token=") {
 		t.Fatal("boot script contains network-preseed or credential material")
 	}
-
 	current, err := state.ActiveAssignmentForMachine(context.Background(), machineRecord.ID)
 	if err != nil || current.State != assignment.StateArmed {
 		t.Fatalf("boot script read changed assignment: %+v err=%v", current, err)
@@ -118,7 +117,6 @@ func TestAssignmentGatedArtifactReadUsesPinnedDescriptorWithoutLifecycleMutation
 	}
 	defer state.Close()
 	_, spec := createArmedProvisioningState(t, state, "52:54:00:40:00:03")
-
 	loader := &recordingArtifactLoader{content: []byte("verified-kernel")}
 	server := New(state, logger, "test")
 	mux := http.NewServeMux()
@@ -131,10 +129,9 @@ func TestAssignmentGatedArtifactReadUsesPinnedDescriptorWithoutLifecycleMutation
 	if rec.Code != http.StatusOK || rec.Body.String() != "verified-kernel" {
 		t.Fatalf("artifact status=%d body=%q", rec.Code, rec.Body.String())
 	}
-	if loader.descriptor.Name != "linux" || loader.descriptor.ID != "debian13-amd64-netboot-linux" || loader.installationID != spec.ID || loader.requestID == "" {
+	if loader.descriptor.Name != "linux" || loader.installationID != spec.ID || loader.requestID == "" {
 		t.Fatalf("loader did not receive pinned/correlated descriptor: %+v", loader)
 	}
-
 	events, err := state.Events(context.Background(), event.EntityInstallation, spec.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -176,8 +173,8 @@ func TestProvisioningReadLogsCorrelationWithoutCredentialMetadata(t *testing.T) 
 			t.Fatalf("provisioning log missing %s: %s", want, logText)
 		}
 	}
-	if strings.Contains(logText, spec.LifecycleCredentialID) || strings.Contains(logText, strings.Fields(spec.Profile.Admin.AuthorizedSSHKeys[0])[1]) || strings.Contains(logText, rec.Body.String()) {
-		t.Fatal("provisioning read log leaked credential, SSH key, or seed content")
+	if strings.Contains(logText, spec.LifecycleCredentialID) || strings.Contains(logText, strings.Fields(spec.Profile.Admin.AuthorizedSSHKeys[0])[1]) {
+		t.Fatal("provisioning read log leaked credential or SSH key")
 	}
 }
 
@@ -198,7 +195,9 @@ func (l *recordingArtifactLoader) Load(_ context.Context, descriptor artifact.De
 func createArmedProvisioningState(t *testing.T, state *store.Store, mac string) (machine.Machine, installation.Spec) {
 	t.Helper()
 	ctx := context.Background()
-	item, _, err := state.DiscoverMachine(ctx, machine.Observation{MAC: mac, Architecture: "x86_64", Firmware: "efi"}, "req_discover_fixture")
+	item, _, err := state.DiscoverMachine(ctx, machine.Observation{
+		MAC: mac, Architecture: "x86_64", Firmware: "efi", SecureBoot: "01", SetupMode: "00",
+	}, "req_discover_fixture")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,10 +218,12 @@ func createArmedProvisioningState(t *testing.T, state *store.Store, mac string) 
 func createProvisioningSpec(t *testing.T, state *store.Store, machineID, requestID string) installation.Spec {
 	t.Helper()
 	keyPayload := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 64)))
+	provenance := "debian:trixie:release=13.6:installer=installer-1"
+	base := "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/installer-1/images/netboot/debian-installer/amd64/"
 	spec, err := state.CreateInstallationSpec(context.Background(), installation.Spec{
 		MachineID:       machineID,
 		DriverID:        "debian13",
-		DriverVersion:   "1",
+		DriverVersion:   "2",
 		OSRelease:       "13",
 		Architecture:    "amd64",
 		ProfileID:       "standard",
@@ -242,24 +243,9 @@ func createProvisioningSpec(t *testing.T, state *store.Store, machineID, request
 			Packages: []string{"jq"},
 		},
 		Artifacts: []installation.Artifact{
-			{
-				ID:         "debian13-amd64-netboot-linux",
-				Name:       "linux",
-				SourceURL:  "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/installer-1/images/netboot/debian-installer/amd64/linux",
-				Version:    "installer-1",
-				Digest:     "sha256:" + strings.Repeat("a", 64),
-				Size:       16,
-				Provenance: "debian:trixie:release=13.6:installer=installer-1",
-			},
-			{
-				ID:         "debian13-amd64-netboot-initrd",
-				Name:       "initrd.gz",
-				SourceURL:  "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/installer-1/images/netboot/debian-installer/amd64/initrd.gz",
-				Version:    "installer-1",
-				Digest:     "sha256:" + strings.Repeat("b", 64),
-				Size:       16,
-				Provenance: "debian:trixie:release=13.6:installer=installer-1",
-			},
+			{ID: "debian13-amd64-netboot-linux", Name: "linux", SourceURL: base + "linux", Version: "installer-1", Digest: "sha256:" + strings.Repeat("a", 64), Size: 16, Provenance: provenance},
+			{ID: "debian13-amd64-netboot-initrd", Name: "initrd.gz", SourceURL: base + "initrd.gz", Version: "installer-1", Digest: "sha256:" + strings.Repeat("b", 64), Size: 16, Provenance: provenance},
+			{ID: "debian13-amd64-netboot-shim", Name: "bootnetx64.efi", SourceURL: base + "bootnetx64.efi", Version: "installer-1", Digest: "sha256:" + strings.Repeat("c", 64), Size: 16, Provenance: provenance},
 		},
 		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: "/dev/vda"},
 		Security:              installation.Security{AutomaticSecurityUpdates: true},

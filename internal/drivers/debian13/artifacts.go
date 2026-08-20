@@ -55,6 +55,7 @@ type Resolution struct {
 	InstallerVersion string
 	Kernel           artifact.Verified
 	Initrd           artifact.Verified
+	Shim             artifact.Verified
 }
 
 func NewArtifactResolver(logger *slog.Logger) *ArtifactResolver {
@@ -119,20 +120,27 @@ func (r *ArtifactResolver) Resolve(ctx context.Context) (Resolution, error) {
 	if err != nil {
 		return Resolution{}, err
 	}
+	shim, err := r.fetchArtifact(ctx, imagesBase, info.InstallerVersion, provenance, "debian13-amd64-netboot-shim", "bootnetx64.efi", "netboot/debian-installer/amd64/bootnetx64.efi", checksums)
+	if err != nil {
+		return Resolution{}, err
+	}
 
 	result := Resolution{
 		ReleaseVersion:   info.ReleaseVersion,
 		InstallerVersion: info.InstallerVersion,
 		Kernel:           kernel,
 		Initrd:           initrd,
+		Shim:             shim,
 	}
-	r.logger.InfoContext(ctx, "Debian installer artifacts verified",
+	r.logger.InfoContext(ctx, "Debian Secure Boot installer artifacts verified",
 		"component", "driver.debian13",
 		"operation", "resolve_artifacts",
 		"release_version", result.ReleaseVersion,
 		"installer_version", result.InstallerVersion,
 		"kernel_digest", result.Kernel.Descriptor.Digest,
 		"initrd_digest", result.Initrd.Descriptor.Digest,
+		"shim_digest", result.Shim.Descriptor.Digest,
+		"result", "success",
 	)
 	return result, nil
 }

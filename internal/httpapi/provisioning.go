@@ -16,6 +16,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/installation"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
+	"github.com/Ostsee-Developer/AegisPXE/internal/secureboot"
 	"github.com/Ostsee-Developer/AegisPXE/internal/trust"
 )
 
@@ -48,6 +49,23 @@ func (s *Server) assignmentDecision(ctx context.Context, item machine.Machine, r
 			return base, "", "", nil
 		}
 		return boot.Decision{}, "", "", err
+	}
+	if !s.secureBootPolicy.AllowsProvision(item.SecureBootState) {
+		s.logger.WarnContext(ctx, "Secure Boot policy blocked armed provisioning",
+			"component", "boot.secureboot",
+			"operation", "evaluate",
+			"request_id", requestID,
+			"machine_id", item.ID,
+			"installation_id", active.InstallationID,
+			"assignment_id", active.ID,
+			"secure_boot_policy", s.secureBootPolicy,
+			"secure_boot_state", item.SecureBootState,
+			"firmware", item.Firmware,
+			"error_code", fault.SecureBootRequired,
+			"result", "rejected",
+			"cause", "secure_boot_not_enabled",
+		)
+		return boot.Decision{Action: boot.ActionLocal, Reason: "secure_boot_required"}, "", "", nil
 	}
 	spec, err := s.state.InstallationSpec(ctx, active.InstallationID)
 	if err != nil {
@@ -116,27 +134,47 @@ func (s *Server) installationBootScript(w http.ResponseWriter, r *http.Request) 
 		writeAPIError(w, http.StatusConflict, fault.DriverRenderFailed, "installation boot arguments are unsafe")
 		return
 	}
+	shim, ok := installationArtifactByName(material.Spec.Artifacts, "bootnetx64.efi")
+	if !ok {
+		s.logger.ErrorContext(r.Context(), "Secure Boot shim is absent from installation spec",
+			"component", "boot.secureboot",
+			"operation", "serve_boot_script",
+			"request_id", requestID(r.Context()),
+			"machine_id", material.Machine.ID,
+			"installation_id", material.Spec.ID,
+			"assignment_id", material.Assignment.ID,
+			"error_code", fault.SecureBootAssetsInvalid,
+			"result", "rejected",
+		)
+		writeAPIError(w, http.StatusConflict, fault.SecureBootAssetsInvalid, "signed Debian Secure Boot shim is missing")
+		return
+	}
 
 	base := requestBaseURL(r)
 	installationID := url.PathEscape(material.Spec.ID)
 	kernelURL := base + "/boot/installations/" + installationID + "/artifacts/linux"
 	initrdURL := base + "/boot/installations/" + installationID + "/artifacts/initrd.gz"
+	shimURL := base + "/boot/installations/" + installationID + "/artifacts/bootnetx64.efi"
 	preseedURL := base + "/boot/installations/" + installationID + "/preseed.cfg"
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = fmt.Fprintln(w, "#!ipxe")
-	_, _ = fmt.Fprintf(w, "echo AegisPXE Debian 13 installation %s\n", ipxeSafe(material.Spec.ID))
+	_, _ = fmt.Fprintf(w, "echo AegisPXE Debian 13 Secure Boot installation %s\n", ipxeSafe(material.Spec.ID))
 	_, _ = fmt.Fprintln(w, "imgfree")
 	_, _ = fmt.Fprintf(w, "kernel %s%s || goto boot_failed\n", kernelURL, args)
 	_, _ = fmt.Fprintf(w, "initrd %s || goto boot_failed\n", initrdURL)
+	_, _ = fmt.Fprintf(w, "shim %s || goto secure_boot_failed\n", shimURL)
 	_, _ = fmt.Fprintf(w, "initrd %s /preseed.cfg || goto boot_failed\n", preseedURL)
 	_, _ = fmt.Fprintln(w, "boot || goto boot_failed")
+	_, _ = fmt.Fprintln(w, ":secure_boot_failed")
+	_, _ = fmt.Fprintln(w, "echo AegisPXE Secure Boot shim fetch or configuration failed")
+	_, _ = fmt.Fprintln(w, "exit 1")
 	_, _ = fmt.Fprintln(w, ":boot_failed")
 	_, _ = fmt.Fprintln(w, "echo AegisPXE installer boot failed safely")
 	_, _ = fmt.Fprintln(w, "exit 1")
 
-	s.logger.InfoContext(r.Context(), "assignment-authorized installation boot script served",
+	s.logger.InfoContext(r.Context(), "Secure Boot assignment-authorized installation boot script served",
 		"component", "httpapi.provisioning",
 		"operation", "serve_boot_script",
 		"request_id", requestID(r.Context()),
@@ -145,6 +183,9 @@ func (s *Server) installationBootScript(w http.ResponseWriter, r *http.Request) 
 		"assignment_id", material.Assignment.ID,
 		"driver_id", material.Spec.DriverID,
 		"driver_version", material.Spec.DriverVersion,
+		"secure_boot_policy", s.secureBootPolicy,
+		"secure_boot_state", material.Machine.SecureBootState,
+		"shim_digest", shim.Digest,
 		"result", "success",
 		"duration_ms", time.Since(started).Milliseconds(),
 	)
@@ -228,6 +269,8 @@ func (s *Server) installationPreseed(w http.ResponseWriter, r *http.Request) {
 		"assignment_id", consumed.ID,
 		"assignment_state", consumed.State,
 		"seed_bytes", len(bundle.Content),
+		"secure_boot_policy", s.secureBootPolicy,
+		"secure_boot_state", material.Machine.SecureBootState,
 		"result", "success",
 		"duration_ms", time.Since(started).Milliseconds(),
 	)
@@ -258,7 +301,7 @@ func (s *Server) installationArtifact(w http.ResponseWriter, r *http.Request, lo
 		return
 	}
 	name := strings.TrimSpace(r.PathValue("name"))
-	if name != "linux" && name != "initrd.gz" {
+	if name != "linux" && name != "initrd.gz" && name != "bootnetx64.efi" {
 		s.logger.WarnContext(r.Context(), "installation artifact request rejected",
 			"component", "httpapi.provisioning",
 			"operation", "serve_artifact",
@@ -333,6 +376,8 @@ func (s *Server) installationArtifact(w http.ResponseWriter, r *http.Request, lo
 		"artifact_name", descriptor.Name,
 		"artifact_digest", descriptor.Digest,
 		"artifact_bytes", len(content),
+		"secure_boot_policy", s.secureBootPolicy,
+		"secure_boot_state", material.Machine.SecureBootState,
 		"result", "success",
 		"duration_ms", time.Since(started).Milliseconds(),
 	)
@@ -362,6 +407,22 @@ func (s *Server) loadPublicBootContext(ctx context.Context, installationID, requ
 	if active.MachineID != item.ID || active.InstallationID != spec.ID {
 		s.logBootMaterialRejected(ctx, operation, requestID, item.ID, installationID, active.ID, fault.InstallationAssignmentInvalid, "assignment_binding_mismatch")
 		return publicBootContext{}, fault.New(fault.InstallationAssignmentInvalid, "installation assignment binding is invalid", nil)
+	}
+	if !s.secureBootPolicy.AllowsProvision(item.SecureBootState) {
+		s.logBootMaterialRejected(ctx, operation, requestID, item.ID, installationID, active.ID, fault.SecureBootRequired, "secure_boot_not_enabled")
+		s.logger.WarnContext(ctx, "Secure Boot policy rejected public installation material",
+			"component", "boot.secureboot",
+			"operation", operation,
+			"request_id", requestID,
+			"machine_id", item.ID,
+			"installation_id", installationID,
+			"assignment_id", active.ID,
+			"secure_boot_policy", s.secureBootPolicy,
+			"secure_boot_state", item.SecureBootState,
+			"error_code", fault.SecureBootRequired,
+			"result", "rejected",
+		)
+		return publicBootContext{}, fault.New(fault.SecureBootRequired, "UEFI Secure Boot is required before installation material may be served", nil)
 	}
 	gate := trust.Evaluate(item.Policy, active.State == assignment.StateArmed, false)
 	if !gate.PublicBootAllowed {
@@ -394,6 +455,8 @@ func (s *Server) writeBootMaterialError(w http.ResponseWriter, _ *http.Request, 
 	switch code {
 	case fault.InstallationNotFound, fault.InstallationAssignmentNotFound, fault.MachineNotFound:
 		status = http.StatusNotFound
+	case fault.SecureBootRequired:
+		status = http.StatusForbidden
 	case fault.StorageFailure:
 		status = http.StatusServiceUnavailable
 	}
@@ -409,7 +472,7 @@ func (s *Server) writeProvisioningChain(w http.ResponseWriter, r *http.Request, 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = fmt.Fprintln(w, "#!ipxe")
-	_, _ = fmt.Fprintln(w, "echo AegisPXE provisioning assignment armed")
+	_, _ = fmt.Fprintln(w, "echo AegisPXE Secure Boot provisioning assignment armed")
 	_, _ = fmt.Fprintf(w, "chain %s || goto provisioning_failed\n", endpoint)
 	_, _ = fmt.Fprintln(w, "exit 0")
 	_, _ = fmt.Fprintln(w, ":provisioning_failed")
@@ -460,3 +523,5 @@ func installationArtifactByName(items []installation.Artifact, name string) (ins
 	}
 	return installation.Artifact{}, false
 }
+
+var _ = secureboot.StateEnabled

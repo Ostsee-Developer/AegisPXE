@@ -68,13 +68,25 @@ func TestSchemaMigrationAddsProvisioningOperatorTrustAndMachineMetadataWithLogs(
 	if version != currentSchemaVersion {
 		t.Fatalf("schema version=%d want=%d", version, currentSchemaVersion)
 	}
-	for table, column := range map[string]string{"installation_specs": "profile_json", "machines": "nickname"} {
+	for table, column := range map[string]string{
+		"installation_specs": "profile_json",
+		"machines":           "nickname",
+	} {
 		hasColumn, err := columnExistsForTest(state.db, table, column)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !hasColumn {
 			t.Fatalf("%s.%s column was not added", table, column)
+		}
+	}
+	for _, column := range []string{"secure_boot_state", "secure_boot_observed_at"} {
+		hasColumn, err := columnExistsForTest(state.db, "machines", column)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasColumn {
+			t.Fatalf("machines.%s column was not added", column)
 		}
 	}
 	if !tableExistsForTest(t, state.db, "installation_assignments") {
@@ -98,8 +110,10 @@ func TestSchemaMigrationAddsProvisioningOperatorTrustAndMachineMetadataWithLogs(
 	if !strings.Contains(logText, `"component":"store.schema"`) ||
 		!strings.Contains(logText, `"operation":"migrate"`) ||
 		!strings.Contains(logText, `"from_version":1`) ||
-		!strings.Contains(logText, `"to_version":7`) ||
+		!strings.Contains(logText, `"to_version":8`) ||
 		!strings.Contains(logText, `"machine_nickname_column_added":true`) ||
+		!strings.Contains(logText, `"machine_secure_boot_state_column_added":true`) ||
+		!strings.Contains(logText, `"machine_secure_boot_observed_at_column_added":true`) ||
 		!strings.Contains(logText, `"assignment_schema_added":true`) ||
 		!strings.Contains(logText, `"operator_identity_schema_added":true`) ||
 		!strings.Contains(logText, `"installer_telemetry_schema_added":true`) ||

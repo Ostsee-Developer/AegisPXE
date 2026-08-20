@@ -132,7 +132,7 @@ func (h *DashboardHandler) dashboardInstallationWizard(w http.ResponseWriter, r 
 	if values.MachineID == "" && len(machines) > 0 {
 		values.MachineID = machines[0].ID
 	}
-	view := dashboardView{Page: "installations", Title: "New installation", Description: "Debian 13 Standard with server-owned artifact trust and security baseline.", Session: session, Machines: machines, Wizard: values}
+	view := dashboardView{Page: "installations", Title: "New installation", Description: "Debian 13 Standard with verified artifacts, signed Debian shim and security baseline.", Session: session, Machines: machines, Wizard: values}
 	if len(machines) == 0 {
 		view.Error = "No PROVISION-approved machine is available. Approve a machine first."
 	}
@@ -193,7 +193,20 @@ func (h *DashboardHandler) dashboardCreateInstallation(w http.ResponseWriter, r 
 		h.renderDashboardWizardError(w, r, session, values, "Debian installer artifacts could not be verified. Check the server log for "+code+".", code, "artifact_resolution_failed", started)
 		return
 	}
-	h.logger.InfoContext(r.Context(), "operator Debian artifacts resolved", "component", "operator.installation", "operation", "resolve_artifacts", "request_id", requestID(r), "machine_id", item.ID, "actor", session.Actor, "release_version", resolution.ReleaseVersion, "installer_version", resolution.InstallerVersion, "kernel_digest", resolution.Kernel.Descriptor.Digest, "initrd_digest", resolution.Initrd.Descriptor.Digest, "result", "success", "duration_ms", time.Since(resolveStarted).Milliseconds())
+	h.logger.InfoContext(r.Context(), "operator Debian Secure Boot artifacts resolved",
+		"component", "operator.installation",
+		"operation", "resolve_artifacts",
+		"request_id", requestID(r),
+		"machine_id", item.ID,
+		"actor", session.Actor,
+		"release_version", resolution.ReleaseVersion,
+		"installer_version", resolution.InstallerVersion,
+		"kernel_digest", resolution.Kernel.Descriptor.Digest,
+		"initrd_digest", resolution.Initrd.Descriptor.Digest,
+		"shim_digest", resolution.Shim.Descriptor.Digest,
+		"result", "success",
+		"duration_ms", time.Since(resolveStarted).Milliseconds(),
+	)
 
 	credentialID, err := idgen.New("lc_")
 	if err != nil {
@@ -203,7 +216,7 @@ func (h *DashboardHandler) dashboardCreateInstallation(w http.ResponseWriter, r 
 	spec := installation.Spec{
 		MachineID: item.ID, DriverID: debian13.DriverID, DriverVersion: debian13.DriverVersion, OSRelease: "13", Architecture: "amd64",
 		ProfileID: builtinProfileID, ProfileRevision: builtinProfileRevision, Profile: profileSnapshot,
-		Artifacts:             []installation.Artifact{resolution.Kernel.Descriptor, resolution.Initrd.Descriptor},
+		Artifacts:             []installation.Artifact{resolution.Kernel.Descriptor, resolution.Initrd.Descriptor, resolution.Shim.Descriptor},
 		Storage:               installation.Storage{Mode: "whole-disk", Filesystem: "ext4", TargetDisk: strings.TrimSpace(values.TargetDisk), Encrypted: false, TPM2: false},
 		Security:              installation.Security{SSHPasswordAuthentication: false, RootLogin: false, AutomaticSecurityUpdates: true},
 		LifecycleCredentialID: credentialID, CreatedBy: session.Actor,
@@ -280,5 +293,5 @@ func (h *DashboardHandler) renderDashboardWizardError(w http.ResponseWriter, r *
 		h.writeDashboardError(w, r, "wizard_machines", err)
 		return
 	}
-	h.renderDashboard(w, dashboardView{Page: "installations", Title: "New installation", Description: "Debian 13 Standard with server-owned artifact trust and security baseline.", Session: session, Machines: machines, Wizard: values, Error: message})
+	h.renderDashboard(w, dashboardView{Page: "installations", Title: "New installation", Description: "Debian 13 Standard with verified artifacts, signed Debian shim and security baseline.", Session: session, Machines: machines, Wizard: values, Error: message})
 }

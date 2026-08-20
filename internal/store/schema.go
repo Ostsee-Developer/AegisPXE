@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 7
+const currentSchemaVersion = 8
 
 func (s *Store) initialize(ctx context.Context) error {
 	for _, pragma := range []string{
@@ -30,13 +30,15 @@ func (s *Store) initialize(ctx context.Context) error {
 			version INTEGER NOT NULL
 		)`,
 		`INSERT INTO schema_meta(version)
-		 SELECT 7 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
+		 SELECT 8 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
 		`CREATE TABLE IF NOT EXISTS machines (
 			id TEXT PRIMARY KEY,
 			nickname TEXT NOT NULL DEFAULT '',
 			policy TEXT NOT NULL CHECK(policy IN ('pending','local','provision','blocked')),
 			architecture TEXT NOT NULL DEFAULT '',
 			firmware TEXT NOT NULL DEFAULT '',
+			secure_boot_state TEXT NOT NULL DEFAULT 'unknown' CHECK(secure_boot_state IN ('unknown','enabled','disabled','setup_mode','unsupported')),
+			secure_boot_observed_at TEXT NOT NULL DEFAULT '',
 			first_seen TEXT NOT NULL,
 			last_seen TEXT NOT NULL
 		)`,
@@ -229,6 +231,28 @@ func (s *Store) initialize(ctx context.Context) error {
 		}
 	}
 
+	hasSecureBootState, err := columnExists(ctx, tx, "machines", "secure_boot_state")
+	if err != nil {
+		return fmt.Errorf("inspect machine Secure Boot schema: %w", err)
+	}
+	secureBootStateColumnAdded := !hasSecureBootState
+	if secureBootStateColumnAdded {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE machines ADD COLUMN secure_boot_state TEXT NOT NULL DEFAULT 'unknown' CHECK(secure_boot_state IN ('unknown','enabled','disabled','setup_mode','unsupported'))`); err != nil {
+			return fmt.Errorf("migrate machine Secure Boot state: %w", err)
+		}
+	}
+
+	hasSecureBootObservedAt, err := columnExists(ctx, tx, "machines", "secure_boot_observed_at")
+	if err != nil {
+		return fmt.Errorf("inspect machine Secure Boot observation schema: %w", err)
+	}
+	secureBootObservedAtColumnAdded := !hasSecureBootObservedAt
+	if secureBootObservedAtColumnAdded {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE machines ADD COLUMN secure_boot_observed_at TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("migrate machine Secure Boot observation timestamp: %w", err)
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, `UPDATE schema_meta SET version=?`, currentSchemaVersion); err != nil {
 		return fmt.Errorf("update schema version: %w", err)
 	}
@@ -236,7 +260,7 @@ func (s *Store) initialize(ctx context.Context) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit schema: %w", err)
 	}
-	if fromVersion != currentSchemaVersion || profileColumnAdded || nicknameColumnAdded {
+	if fromVersion != currentSchemaVersion || profileColumnAdded || nicknameColumnAdded || secureBootStateColumnAdded || secureBootObservedAtColumnAdded {
 		s.logger.InfoContext(ctx, "storage schema migrated",
 			"component", "store.schema",
 			"operation", "migrate",
@@ -244,6 +268,8 @@ func (s *Store) initialize(ctx context.Context) error {
 			"to_version", currentSchemaVersion,
 			"profile_snapshot_column_added", profileColumnAdded,
 			"machine_nickname_column_added", nicknameColumnAdded,
+			"machine_secure_boot_state_column_added", secureBootStateColumnAdded,
+			"machine_secure_boot_observed_at_column_added", secureBootObservedAtColumnAdded,
 			"assignment_schema_added", fromVersion < 3,
 			"operator_identity_schema_added", fromVersion < 4,
 			"installer_telemetry_schema_added", fromVersion < 5,

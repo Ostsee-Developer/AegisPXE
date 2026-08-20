@@ -12,6 +12,7 @@ import (
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/idgen"
 	"github.com/Ostsee-Developer/AegisPXE/internal/machine"
+	"github.com/Ostsee-Developer/AegisPXE/internal/secureboot"
 )
 
 func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observation, requestID string) (machine.Machine, bool, error) {
@@ -31,6 +32,20 @@ func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observa
 		err := fault.New(fault.MachineIdentityInvalid, "machine observation metadata is too large", nil)
 		s.logger.WarnContext(ctx, "machine observation rejected", "component", "store.machine", "operation", "discover", "request_id", requestID, "error_code", fault.Code(err))
 		return machine.Machine{}, false, err
+	}
+	secureBootState, err := observation.SecureBootState()
+	if err != nil {
+		wrapped := fault.New(fault.SecureBootEvidenceInvalid, "machine Secure Boot evidence is invalid", err)
+		s.logger.WarnContext(ctx, "machine Secure Boot evidence rejected",
+			"component", "boot.secureboot",
+			"operation", "observe",
+			"request_id", requestID,
+			"firmware", firmware,
+			"error_code", fault.Code(wrapped),
+			"result", "rejected",
+			"cause", err.Error(),
+		)
+		return machine.Machine{}, false, wrapped
 	}
 	identifiers, err := observation.Identifiers()
 	if err != nil {
@@ -78,10 +93,10 @@ func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observa
 			s.logger.ErrorContext(ctx, "machine ID allocation failed", "component", "store.machine", "operation", "discover", "request_id", requestID, "error_code", fault.StorageFailure, "error", err)
 			return machine.Machine{}, false, fault.New(fault.StorageFailure, "could not allocate machine identifier", err)
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO machines(id,nickname,policy,architecture,firmware,first_seen,last_seen) VALUES(?,?,?,?,?,?,?)`, machineID, "", machine.PolicyPending, architecture, firmware, stamp, stamp)
+		_, err = tx.ExecContext(ctx, `INSERT INTO machines(id,nickname,policy,architecture,firmware,secure_boot_state,secure_boot_observed_at,first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?,?)`, machineID, "", machine.PolicyPending, architecture, firmware, secureBootState, stamp, stamp, stamp)
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE machines SET architecture=CASE WHEN ?='' THEN architecture ELSE ? END,
-			firmware=CASE WHEN ?='' THEN firmware ELSE ? END,last_seen=? WHERE id=?`, architecture, architecture, firmware, firmware, stamp, machineID)
+			firmware=CASE WHEN ?='' THEN firmware ELSE ? END,secure_boot_state=?,secure_boot_observed_at=?,last_seen=? WHERE id=?`, architecture, architecture, firmware, firmware, secureBootState, stamp, stamp, machineID)
 	}
 	if err != nil {
 		return machine.Machine{}, false, s.storageError("persist machine observation", err)
@@ -116,12 +131,22 @@ func (s *Store) DiscoverMachine(ctx context.Context, observation machine.Observa
 	if created {
 		outcome = "created"
 	}
-	s.logger.InfoContext(ctx, "machine discovery recorded", "component", "store.machine", "operation", "discover", "request_id", requestID, "machine_id", machineID, "policy", result.Policy, "result", outcome)
+	s.logger.InfoContext(ctx, "machine discovery recorded",
+		"component", "store.machine",
+		"operation", "discover",
+		"request_id", requestID,
+		"machine_id", machineID,
+		"policy", result.Policy,
+		"firmware", result.Firmware,
+		"secure_boot_state", result.SecureBootState,
+		"secure_boot_observed_at", result.SecureBootObserved,
+		"result", outcome,
+	)
 	return result, created, nil
 }
 
 func (s *Store) Machine(ctx context.Context, id string) (machine.Machine, error) {
-	result, err := scanMachine(s.db.QueryRowContext(ctx, `SELECT id,nickname,policy,architecture,firmware,first_seen,last_seen FROM machines WHERE id=?`, strings.TrimSpace(id)))
+	result, err := scanMachine(s.db.QueryRowContext(ctx, `SELECT id,nickname,policy,architecture,firmware,secure_boot_state,secure_boot_observed_at,first_seen,last_seen FROM machines WHERE id=?`, strings.TrimSpace(id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return machine.Machine{}, fault.New(fault.MachineNotFound, "machine not found", err)
 	}
@@ -175,7 +200,7 @@ func (s *Store) SetMachineNickname(ctx context.Context, machineID, nickname, req
 }
 
 func machineByIDTx(ctx context.Context, tx *sql.Tx, id string) (machine.Machine, error) {
-	return scanMachine(tx.QueryRowContext(ctx, `SELECT id,nickname,policy,architecture,firmware,first_seen,last_seen FROM machines WHERE id=?`, id))
+	return scanMachine(tx.QueryRowContext(ctx, `SELECT id,nickname,policy,architecture,firmware,secure_boot_state,secure_boot_observed_at,first_seen,last_seen FROM machines WHERE id=?`, id))
 }
 
 type scanner interface {
@@ -184,11 +209,20 @@ type scanner interface {
 
 func scanMachine(row scanner) (machine.Machine, error) {
 	var result machine.Machine
-	var firstSeen, lastSeen string
-	if err := row.Scan(&result.ID, &result.Nickname, &result.Policy, &result.Architecture, &result.Firmware, &firstSeen, &lastSeen); err != nil {
+	var secureBootObserved, firstSeen, lastSeen string
+	if err := row.Scan(&result.ID, &result.Nickname, &result.Policy, &result.Architecture, &result.Firmware, &result.SecureBootState, &secureBootObserved, &firstSeen, &lastSeen); err != nil {
 		return machine.Machine{}, err
 	}
+	if result.SecureBootState == "" {
+		result.SecureBootState = secureboot.StateUnknown
+	}
 	var err error
+	if secureBootObserved != "" {
+		result.SecureBootObserved, err = time.Parse(time.RFC3339Nano, secureBootObserved)
+		if err != nil {
+			return machine.Machine{}, fmt.Errorf("parse secure_boot_observed_at: %w", err)
+		}
+	}
 	result.FirstSeen, err = time.Parse(time.RFC3339Nano, firstSeen)
 	if err != nil {
 		return machine.Machine{}, fmt.Errorf("parse first_seen: %w", err)

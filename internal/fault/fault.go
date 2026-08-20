@@ -45,6 +45,9 @@ const (
 	BootTrustProofInvalid           = "SEC020_BOOT_TRUST_PROOF_INVALID"
 	BootTrustChallengeExpired       = "SEC021_BOOT_TRUST_CHALLENGE_EXPIRED"
 	BootTrustReplayRejected         = "SEC022_BOOT_TRUST_REPLAY_REJECTED"
+	SecureBootRequired              = "SEC023_SECURE_BOOT_REQUIRED"
+	SecureBootEvidenceInvalid       = "SEC024_SECURE_BOOT_EVIDENCE_INVALID"
+	SecureBootAssetsInvalid         = "SEC025_SECURE_BOOT_ASSETS_INVALID"
 	StorageFailure                  = "SYS001_STORAGE_FAILURE"
 )
 
