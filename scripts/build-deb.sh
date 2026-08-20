@@ -22,11 +22,21 @@ mkdir -p "$OUT_DIR"
 install -d -m 0755 \
   "$PKG_ROOT/DEBIAN" \
   "$PKG_ROOT/usr/lib/aegispxe" \
+  "$PKG_ROOT/usr/lib/aegispxe/agent" \
   "$PKG_ROOT/usr/lib/aegispxe/secureboot" \
   "$PKG_ROOT/etc/aegispxe" \
   "$PKG_ROOT/lib/systemd/system"
 
 OUTPUT="$PKG_ROOT/usr/lib/aegispxe/aegispxe-server" \
+GOOS=linux \
+GOARCH="$GOARCH" \
+CGO_ENABLED=0 \
+bash scripts/build.sh >/dev/null
+
+# This is deliberately an unsealed template. The runtime build worker copies
+# it and appends the per-installation identity envelope before packaging.
+OUTPUT="$PKG_ROOT/usr/lib/aegispxe/agent/aegispxe-agent-template" \
+TARGET=./cmd/aegispxe-agent \
 GOOS=linux \
 GOARCH="$GOARCH" \
 CGO_ENABLED=0 \

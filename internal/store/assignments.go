@@ -62,6 +62,13 @@ func (s *Store) ArmInstallation(ctx context.Context, machineID, installationID, 
 		s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.InstallationAssignmentInvalid, "installation_machine_mismatch")
 		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "installation belongs to a different machine", nil)
 	}
+	if err := ensureManagedAgentBuildReadyTx(ctx, tx, installationID); err != nil {
+		if fault.Code(err) == fault.AgentBuildNotReady {
+			s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.AgentBuildNotReady, "managed_agent_build_not_ready")
+			return assignment.Assignment{}, err
+		}
+		return assignment.Assignment{}, s.storageError("validate managed agent build readiness", err)
+	}
 
 	var existingState assignment.State
 	err = tx.QueryRowContext(ctx, `SELECT state FROM installation_assignments WHERE installation_id=? LIMIT 1`, installationID).Scan(&existingState)
@@ -88,15 +95,7 @@ func (s *Store) ArmInstallation(ctx context.Context, machineID, installationID, 
 		return assignment.Assignment{}, fault.New(fault.StorageFailure, "could not allocate assignment identifier", err)
 	}
 	now := s.now().UTC()
-	item := assignment.Assignment{
-		ID:               id,
-		MachineID:        machineID,
-		InstallationID:   installationID,
-		State:            assignment.StateArmed,
-		TrustRequirement: assignment.TrustRequirementCryptographic,
-		ArmedAt:          now,
-		ArmedBy:          actor,
-	}
+	item := assignment.Assignment{ID: id, MachineID: machineID, InstallationID: installationID, State: assignment.StateArmed, TrustRequirement: assignment.TrustRequirementCryptographic, ArmedAt: now, ArmedBy: actor}
 	if err := item.Validate(); err != nil {
 		s.logAssignmentRejected(ctx, "arm", requestID, machineID, installationID, actor, fault.InstallationAssignmentInvalid, "assignment_validation_failed")
 		return assignment.Assignment{}, fault.New(fault.InstallationAssignmentInvalid, "assignment is invalid", err)
@@ -104,39 +103,20 @@ func (s *Store) ArmInstallation(ctx context.Context, machineID, installationID, 
 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO installation_assignments(
 		id,machine_id,installation_id,state,trust_requirement,armed_at,armed_by,consumed_at,cancelled_at
-	) VALUES(?,?,?,?,?,?,?,?,?)`, item.ID, item.MachineID, item.InstallationID, item.State, item.TrustRequirement,
-		item.ArmedAt.Format(time.RFC3339Nano), item.ArmedBy, "", ""); err != nil {
+	) VALUES(?,?,?,?,?,?,?,?,?)`, item.ID, item.MachineID, item.InstallationID, item.State, item.TrustRequirement, item.ArmedAt.Format(time.RFC3339Nano), item.ArmedBy, "", ""); err != nil {
 		return assignment.Assignment{}, s.storageError("persist armed assignment", err)
 	}
 	if err := appendServerLifecycleEventTx(ctx, tx, installationID, lifecycle.StageQueued, "server:queued:"+installationID, "installation queued for next destructive PXE boot", requestID, now); err != nil {
 		return assignment.Assignment{}, s.storageError("persist installation queued lifecycle event", err)
 	}
-	if err := appendEventTx(ctx, tx, event.Event{
-		EntityType: event.EntityInstallation,
-		EntityID:   installationID,
-		Type:       event.InstallationArmed,
-		OccurredAt: now,
-		RequestID:  requestID,
-		Actor:      actor,
-		Message:    "installation armed for machine; cryptographic boot trust remains required for secrets",
-	}); err != nil {
+	if err := appendEventTx(ctx, tx, event.Event{EntityType: event.EntityInstallation, EntityID: installationID, Type: event.InstallationArmed, OccurredAt: now, RequestID: requestID, Actor: actor, Message: "installation armed for machine; cryptographic boot trust remains required for secrets"}); err != nil {
 		return assignment.Assignment{}, s.storageError("persist assignment arm event", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return assignment.Assignment{}, s.storageError("commit assignment arm", err)
 	}
 
-	s.logger.InfoContext(ctx, "installation assignment armed",
-		"component", "store.assignment",
-		"operation", "arm",
-		"request_id", requestID,
-		"machine_id", machineID,
-		"installation_id", installationID,
-		"assignment_id", item.ID,
-		"trust_requirement", item.TrustRequirement,
-		"actor", actor,
-		"result", "success",
-	)
+	s.logger.InfoContext(ctx, "installation assignment armed", "component", "store.assignment", "operation", "arm", "request_id", requestID, "machine_id", machineID, "installation_id", installationID, "assignment_id", item.ID, "trust_requirement", item.TrustRequirement, "actor", actor, "result", "success")
 	return item, nil
 }
 
@@ -176,15 +156,7 @@ func (s *Store) CancelAssignment(ctx context.Context, installationID, requestID,
 	if _, err := tx.ExecContext(ctx, `UPDATE installation_assignments SET state='cancelled',cancelled_at=? WHERE id=? AND state='armed'`, now.Format(time.RFC3339Nano), item.ID); err != nil {
 		return assignment.Assignment{}, s.storageError("cancel assignment", err)
 	}
-	if err := appendEventTx(ctx, tx, event.Event{
-		EntityType: event.EntityInstallation,
-		EntityID:   installationID,
-		Type:       event.InstallationAssignmentCancelled,
-		OccurredAt: now,
-		RequestID:  requestID,
-		Actor:      actor,
-		Message:    "installation assignment cancelled",
-	}); err != nil {
+	if err := appendEventTx(ctx, tx, event.Event{EntityType: event.EntityInstallation, EntityID: installationID, Type: event.InstallationAssignmentCancelled, OccurredAt: now, RequestID: requestID, Actor: actor, Message: "installation assignment cancelled"}); err != nil {
 		return assignment.Assignment{}, s.storageError("persist assignment cancellation event", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -193,16 +165,7 @@ func (s *Store) CancelAssignment(ctx context.Context, installationID, requestID,
 	item.State = assignment.StateCancelled
 	item.CancelledAt = now
 
-	s.logger.InfoContext(ctx, "installation assignment cancelled",
-		"component", "store.assignment",
-		"operation", "cancel",
-		"request_id", requestID,
-		"machine_id", item.MachineID,
-		"installation_id", installationID,
-		"assignment_id", item.ID,
-		"actor", actor,
-		"result", "success",
-	)
+	s.logger.InfoContext(ctx, "installation assignment cancelled", "component", "store.assignment", "operation", "cancel", "request_id", requestID, "machine_id", item.MachineID, "installation_id", installationID, "assignment_id", item.ID, "actor", actor, "result", "success")
 	return item, nil
 }
 
@@ -225,7 +188,6 @@ func (s *Store) Assignments(ctx context.Context) ([]assignment.Assignment, error
 		return nil, s.storageError("list assignments", err)
 	}
 	defer rows.Close()
-
 	var items []assignment.Assignment
 	for rows.Next() {
 		item, err := scanAssignment(rows)
@@ -241,22 +203,10 @@ func (s *Store) Assignments(ctx context.Context) ([]assignment.Assignment, error
 }
 
 func (s *Store) logAssignmentRejected(ctx context.Context, operation, requestID, machineID, installationID, actor, code, cause string) {
-	s.logger.WarnContext(ctx, "installation assignment operation rejected",
-		"component", "store.assignment",
-		"operation", operation,
-		"request_id", requestID,
-		"machine_id", machineID,
-		"installation_id", installationID,
-		"actor", actor,
-		"result", "rejected",
-		"error_code", code,
-		"cause", cause,
-	)
+	s.logger.WarnContext(ctx, "installation assignment operation rejected", "component", "store.assignment", "operation", operation, "request_id", requestID, "machine_id", machineID, "installation_id", installationID, "actor", actor, "result", "rejected", "error_code", code, "cause", cause)
 }
 
-type assignmentScanner interface {
-	Scan(...any) error
-}
+type assignmentScanner interface{ Scan(...any) error }
 
 func scanAssignment(scanner assignmentScanner) (assignment.Assignment, error) {
 	var item assignment.Assignment
@@ -291,7 +241,6 @@ func scanAssignment(scanner assignmentScanner) (assignment.Assignment, error) {
 }
 
 func assignmentForInstallationTx(ctx context.Context, tx *sql.Tx, installationID string) (assignment.Assignment, error) {
-	row := tx.QueryRowContext(ctx, `SELECT id,machine_id,installation_id,state,trust_requirement,armed_at,armed_by,consumed_at,cancelled_at
-		FROM installation_assignments WHERE installation_id=?`, installationID)
+	row := tx.QueryRowContext(ctx, `SELECT id,machine_id,installation_id,state,trust_requirement,armed_at,armed_by,consumed_at,cancelled_at FROM installation_assignments WHERE installation_id=?`, installationID)
 	return scanAssignment(row)
 }

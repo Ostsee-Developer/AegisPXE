@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 8
+const currentSchemaVersion = 9
 
 func (s *Store) initialize(ctx context.Context) error {
 	for _, pragma := range []string{
@@ -30,7 +30,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			version INTEGER NOT NULL
 		)`,
 		`INSERT INTO schema_meta(version)
-		 SELECT 8 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
+		 SELECT 9 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
 		`CREATE TABLE IF NOT EXISTS machines (
 			id TEXT PRIMARY KEY,
 			nickname TEXT NOT NULL DEFAULT '',
@@ -199,6 +199,9 @@ func (s *Store) initialize(ctx context.Context) error {
 			return fmt.Errorf("apply schema: %w", err)
 		}
 	}
+	if err := applyManagedAgentSchema(ctx, tx); err != nil {
+		return err
+	}
 
 	var version int
 	if err := tx.QueryRowContext(ctx, `SELECT version FROM schema_meta LIMIT 1`).Scan(&version); err != nil {
@@ -274,6 +277,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			"operator_identity_schema_added", fromVersion < 4,
 			"installer_telemetry_schema_added", fromVersion < 5,
 			"boot_trust_schema_added", fromVersion < 6,
+			"agent_schema_added", fromVersion < 9,
 			"result", "success",
 		)
 	}

@@ -11,3 +11,4 @@ Accepted architecture decisions are kept in this directory and use monotonically
 - `0007-tpm-bound-reporter-trust.md`
 - `0008-layered-human-authentication.md`
 - `0009-secure-boot-chain.md`
+- `0010-per-installation-managed-agent.md`

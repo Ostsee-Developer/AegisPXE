@@ -15,6 +15,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Ostsee-Developer/AegisPXE/internal/agentbuild"
+	"github.com/Ostsee-Developer/AegisPXE/internal/agentcontrol"
+	"github.com/Ostsee-Developer/AegisPXE/internal/agenttrust"
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/httpapi"
 	"github.com/Ostsee-Developer/AegisPXE/internal/observability"
@@ -35,6 +38,7 @@ const (
 type namedHTTPServer struct {
 	name   string
 	server *http.Server
+	tls    bool
 }
 
 func main() {
@@ -57,53 +61,20 @@ func main() {
 
 	secureBootPolicy, err := secureboot.ParsePolicy(env("AEGISPXE_SECURE_BOOT_POLICY", string(secureboot.PolicyRequired)))
 	if err != nil {
-		logger.Error("startup failed",
-			"component", "boot.secureboot",
-			"operation", "configuration",
-			"error_code", fault.SecureBootRequired,
-			"result", "failure",
-			"error", err,
-		)
+		logger.Error("startup failed", "component", "boot.secureboot", "operation", "configuration", "error_code", fault.SecureBootRequired, "result", "failure", "error", err)
 		os.Exit(1)
 	}
 	secureBootAssetDir := env("AEGISPXE_SECURE_BOOT_ASSET_DIR", "/usr/lib/aegispxe/secureboot")
 	secureBootReport, secureBootErr := secureboot.ValidateAssets(secureBootAssetDir)
 	secureBootAssetsValid := secureBootErr == nil
 	if secureBootErr != nil && secureBootPolicy == secureboot.PolicyRequired {
-		logger.Error("startup failed: Secure Boot assets are not valid",
-			"component", "boot.secureboot",
-			"operation", "validate_assets",
-			"secure_boot_policy", secureBootPolicy,
-			"asset_directory", secureBootAssetDir,
-			"error_code", fault.SecureBootAssetsInvalid,
-			"result", "failure",
-			"error", secureBootErr,
-		)
+		logger.Error("startup failed: Secure Boot assets are not valid", "component", "boot.secureboot", "operation", "validate_assets", "secure_boot_policy", secureBootPolicy, "asset_directory", secureBootAssetDir, "error_code", fault.SecureBootAssetsInvalid, "result", "failure", "error", secureBootErr)
 		os.Exit(1)
 	}
 	if secureBootErr != nil {
-		logger.Warn("Secure Boot assets are unavailable or invalid under non-required policy",
-			"component", "boot.secureboot",
-			"operation", "validate_assets",
-			"secure_boot_policy", secureBootPolicy,
-			"asset_directory", secureBootAssetDir,
-			"error_code", fault.SecureBootAssetsInvalid,
-			"result", "audit_warning",
-			"error", secureBootErr,
-		)
+		logger.Warn("Secure Boot assets are unavailable or invalid under non-required policy", "component", "boot.secureboot", "operation", "validate_assets", "secure_boot_policy", secureBootPolicy, "asset_directory", secureBootAssetDir, "error_code", fault.SecureBootAssetsInvalid, "result", "audit_warning", "error", secureBootErr)
 	} else {
-		logger.Info("Secure Boot assets validated",
-			"component", "boot.secureboot",
-			"operation", "validate_assets",
-			"secure_boot_policy", secureBootPolicy,
-			"asset_directory", secureBootReport.Directory,
-			"upstream_release", secureBootReport.UpstreamRelease,
-			"upstream_commit", secureBootReport.UpstreamCommit,
-			"release_asset_sha256", secureBootReport.ReleaseAssetSHA256,
-			"ipxe_shim_sha256", secureBootReport.Files["ipxe-shim.efi"].SHA256,
-			"ipxe_sha256", secureBootReport.Files["ipxe.efi"].SHA256,
-			"result", "success",
-		)
+		logger.Info("Secure Boot assets validated", "component", "boot.secureboot", "operation", "validate_assets", "secure_boot_policy", secureBootPolicy, "asset_directory", secureBootReport.Directory, "upstream_release", secureBootReport.UpstreamRelease, "upstream_commit", secureBootReport.UpstreamCommit, "release_asset_sha256", secureBootReport.ReleaseAssetSHA256, "ipxe_shim_sha256", secureBootReport.Files["ipxe-shim.efi"].SHA256, "ipxe_sha256", secureBootReport.Files["ipxe.efi"].SHA256, "result", "success")
 	}
 
 	state, err := store.Open(ctx, env("AEGISPXE_DB", "/var/lib/aegispxe/aegispxe.db"), logger)
@@ -113,26 +84,97 @@ func main() {
 	}
 	defer state.Close()
 
+	agentAuthority, err := agenttrust.LoadOrCreate(env("AEGISPXE_AGENT_TRUST_DIR", "/var/lib/aegispxe/agent-trust"), logger)
+	if err != nil {
+		logger.Error("startup failed", "component", "agent.trust", "operation", "load", "error_code", fault.AgentTrustUnavailable, "result", "failure", "error", err)
+		os.Exit(1)
+	}
+	controllerURL := env("AEGISPXE_AGENT_CONTROLLER_URL", "")
+	var agentHTTPServer *http.Server
+	if controllerURL == "" {
+		logger.Warn("managed agent control plane and build worker disabled until controller URL is configured",
+			"component", "agent.control",
+			"operation", "configuration",
+			"instance_id", agentAuthority.InstanceID(),
+			"error_code", fault.AgentBuilderNotConfigured,
+			"result", "disabled",
+		)
+	} else {
+		builder, err := agentbuild.New(agentbuild.Config{
+			TemplatePath:  env("AEGISPXE_AGENT_TEMPLATE", "/usr/lib/aegispxe/agent/aegispxe-agent-template"),
+			OutputDir:     env("AEGISPXE_AGENT_ARTIFACT_DIR", "/var/lib/aegispxe/agent-builds"),
+			ControllerURL: controllerURL,
+			Version:       version,
+		}, agentAuthority, logger)
+		if err != nil {
+			logger.Error("startup failed", "component", "agent.build_worker", "operation", "configuration", "error_code", fault.AgentBuilderNotConfigured, "result", "failure", "error", err)
+			os.Exit(1)
+		}
+		worker, err := agentbuild.NewWorker(state, builder, version, logger)
+		if err != nil {
+			logger.Error("startup failed", "component", "agent.build_worker", "operation", "configuration", "error_code", fault.AgentBuilderNotConfigured, "result", "failure", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("managed agent build worker enabled",
+			"component", "agent.build_worker",
+			"operation", "configuration",
+			"instance_id", agentAuthority.InstanceID(),
+			"controller_url", controllerURL,
+			"result", "enabled",
+		)
+		go func() {
+			if err := worker.Run(ctx); err != nil {
+				logger.Error("managed agent build worker stopped unexpectedly", "component", "agent.build_worker", "operation", "run", "error_code", fault.AgentBuildFailed, "result", "failure", "error", err)
+				stop()
+			}
+		}()
+
+		agentListen := env("AEGISPXE_AGENT_LISTEN", "0.0.0.0:8092")
+		if strings.EqualFold(agentListen, "disabled") {
+			logger.Warn("managed agent control-plane listener disabled",
+				"component", "agent.control",
+				"operation", "configuration",
+				"instance_id", agentAuthority.InstanceID(),
+				"controller_url", controllerURL,
+				"result", "disabled",
+			)
+		} else {
+			controlPlane, err := agentcontrol.New(state, agentAuthority, logger)
+			if err != nil {
+				logger.Error("startup failed", "component", "agent.control", "operation", "configuration", "error_code", fault.AgentTrustUnavailable, "result", "failure", "error", err)
+				os.Exit(1)
+			}
+			tlsConfig, err := controlPlane.TLSConfig(controllerURL)
+			if err != nil {
+				logger.Error("startup failed", "component", "agent.control", "operation", "tls_configuration", "error_code", fault.AgentTrustUnavailable, "result", "failure", "error", err)
+				os.Exit(1)
+			}
+			agentHTTPServer = newHTTPServer(agentListen, controlPlane.Handler())
+			agentHTTPServer.TLSConfig = tlsConfig
+			logger.Info("managed agent control-plane listener configured",
+				"component", "agent.control",
+				"operation", "configuration",
+				"instance_id", agentAuthority.InstanceID(),
+				"controller_url", controllerURL,
+				"address", agentListen,
+				"tls_min_version", "1.3",
+				"result", "enabled",
+			)
+		}
+	}
+
 	operatorAuth, err := operator.LoadOrCreate(env("AEGISPXE_OPERATOR_KEY", "/var/lib/aegispxe/operator.key"), logger)
 	if err != nil {
 		logger.Error("startup failed", "component", "operator.auth", "operation", "recovery_key", "error_code", fault.StorageFailure, "error", err)
 		os.Exit(1)
 	}
-	passkeys, err := operatorpasskey.New(
-		env("AEGISPXE_WEBAUTHN_RP_ID", ""),
-		splitConfigList(env("AEGISPXE_WEBAUTHN_ORIGINS", "")),
-		logger,
-	)
+	passkeys, err := operatorpasskey.New(env("AEGISPXE_WEBAUTHN_RP_ID", ""), splitConfigList(env("AEGISPXE_WEBAUTHN_ORIGINS", "")), logger)
 	if err != nil {
 		logger.Error("startup failed", "component", "operator.auth", "operation", "webauthn_configuration", "error_code", fault.OperatorAuthenticationFailed, "error", err)
 		os.Exit(1)
 	}
 
-	proxyTrust, err := operatorui.ParseTrustedProxy(
-		env("AEGISPXE_TRUSTED_PROXY_CIDRS", ""),
-		env("AEGISPXE_TRUSTED_PROXY_IDENTITY_HEADER", "Remote-User"),
-		env("AEGISPXE_TRUSTED_PROXY_PROTO_HEADER", "X-Forwarded-Proto"),
-	)
+	proxyTrust, err := operatorui.ParseTrustedProxy(env("AEGISPXE_TRUSTED_PROXY_CIDRS", ""), env("AEGISPXE_TRUSTED_PROXY_IDENTITY_HEADER", "Remote-User"), env("AEGISPXE_TRUSTED_PROXY_PROTO_HEADER", "X-Forwarded-Proto"))
 	if err != nil {
 		logger.Error("startup failed", "component", "operator.proxy", "operation", "configuration", "error_code", fault.OperatorSecureTransportRequired, "error", err)
 		os.Exit(1)
@@ -142,51 +184,35 @@ func main() {
 	studioAddress := envFirst("127.0.0.1:8091", "AEGISPXE_STUDIO_LISTEN", "AEGISPXE_OPERATOR_LISTEN")
 	if !strings.EqualFold(studioAddress, "disabled") {
 		if err := validateStudioListen(studioAddress, proxyTrust.Enabled()); err != nil {
-			logger.Error("startup failed",
-				"component", "operator.http",
-				"operation", "listen_validation",
-				"error_code", fault.OperatorSecureTransportRequired,
-				"address", studioAddress,
-				"trusted_proxy_enabled", proxyTrust.Enabled(),
-				"error", err,
-			)
+			logger.Error("startup failed", "component", "operator.http", "operation", "listen_validation", "error_code", fault.OperatorSecureTransportRequired, "address", studioAddress, "trusted_proxy_enabled", proxyTrust.Enabled(), "error", err)
 			os.Exit(1)
 		}
 	}
 
-	app := httpapi.NewWithConfig(state, logger, version, httpapi.Config{
-		SecureBootPolicy:      secureBootPolicy,
-		SecureBootAssetsValid: secureBootAssetsValid,
-	})
+	app := httpapi.NewWithConfig(state, logger, version, httpapi.Config{SecureBootPolicy: secureBootPolicy, SecureBootAssetsValid: secureBootAssetsValid})
 	publicHandler := app.HandlerWithBootTrust()
-	servers := []namedHTTPServer{{
-		name:   "pxe",
-		server: newHTTPServer(pxeAddress, pxeSurface(publicHandler)),
-	}}
+	servers := []namedHTTPServer{{name: "pxe", server: newHTTPServer(pxeAddress, pxeSurface(publicHandler))}}
 	if !strings.EqualFold(studioAddress, "disabled") {
 		studioHandler := operatorui.NewDashboardWithTrustedProxy(publicHandler, state, operatorAuth, passkeys, logBuffer, logger, proxyTrust)
 		studioHandler = studioSurface(studioHandler)
 		studioHandler = operatorui.RequireTrustedProxyOrLoopback(studioHandler, proxyTrust, logger)
 		servers = append(servers, namedHTTPServer{name: "studio", server: newHTTPServer(studioAddress, studioHandler)})
 	}
+	if agentHTTPServer != nil {
+		servers = append(servers, namedHTTPServer{name: "agent", server: agentHTTPServer, tls: true})
+	}
 
 	errCh := make(chan error, len(servers))
 	for _, item := range servers {
 		item := item
-		logger.Info("AegisPXE server starting",
-			"component", "server",
-			"operation", "listen",
-			"version", version,
-			"listener", item.name,
-			"address", item.server.Addr,
-			"trusted_proxy_enabled", item.name == "studio" && proxyTrust.Enabled(),
-			"webauthn_enabled", item.name == "studio" && passkeys != nil,
-			"secure_boot_policy", secureBootPolicy,
-			"secure_boot_assets_valid", secureBootAssetsValid,
-			"write_timeout_ms", serverWriteTimeout.Milliseconds(),
-		)
+		logger.Info("AegisPXE server starting", "component", "server", "operation", "listen", "version", version, "listener", item.name, "address", item.server.Addr, "tls_enabled", item.tls, "trusted_proxy_enabled", item.name == "studio" && proxyTrust.Enabled(), "webauthn_enabled", item.name == "studio" && passkeys != nil, "secure_boot_policy", secureBootPolicy, "secure_boot_assets_valid", secureBootAssetsValid, "write_timeout_ms", item.server.WriteTimeout.Milliseconds())
 		go func() {
-			err := item.server.ListenAndServe()
+			var err error
+			if item.tls {
+				err = item.server.ListenAndServeTLS("", "")
+			} else {
+				err = item.server.ListenAndServe()
+			}
 			if errors.Is(err, http.ErrServerClosed) {
 				err = nil
 			}
@@ -266,9 +292,7 @@ func validateStudioListen(address string, trustedProxyEnabled bool) error {
 }
 
 func splitConfigList(value string) []string {
-	return strings.FieldsFunc(value, func(r rune) bool {
-		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n'
-	})
+	return strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' })
 }
 
 func envFirst(fallback string, names ...string) string {

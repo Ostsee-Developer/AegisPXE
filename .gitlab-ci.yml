@@ -1,0 +1,319 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+
+stages:
+  - validate
+  - test
+  - security
+  - package
+  - release
+
+variables:
+  GOTOOLCHAIN: "local"
+  GOCACHE: "$CI_PROJECT_DIR/.cache/go-build"
+  GOMODCACHE: "$CI_PROJECT_DIR/.cache/go-mod"
+
+.go_job:
+  image: golang:1.25.13-bookworm
+  tags:
+    - aegis-ci
+  cache:
+    key:
+      files:
+        - go.sum
+    paths:
+      - .cache/go-build/
+      - .cache/go-mod/
+    policy: pull-push
+  before_script:
+    - umask 077
+    - go version
+
+constitution:
+  stage: validate
+  image: golang:1.25.13-bookworm
+  tags:
+    - aegis-ci
+  script:
+    - |
+      set -euo pipefail
+      required=(
+        README.md
+        ARCHITECTURE.md
+        OBSERVABILITY.md
+        SECURITY.md
+        LIFECYCLE.md
+        DRIVER_CONTRACT.md
+        TESTING.md
+        PACKAGING.md
+        CONTRIBUTING.md
+        AGENTS.md
+        docs/PROFILE_SCHEMA.md
+        docs/ERROR_CODES.md
+        docs/MACHINE_DISCOVERY.md
+        docs/ROADMAP.md
+        docs/adr/0001-headless-provisioning-core.md
+        docs/adr/0002-event-sourced-installation-status.md
+      )
+      for file in "${required[@]}"; do
+        if [[ ! -s "$file" ]]; then
+          echo "Required project contract is missing or empty: $file" >&2
+          exit 1
+        fi
+      done
+    - |
+      set -euo pipefail
+      grep -Fq "No inferred progress" README.md
+      grep -Fq "AegisPXE must never infer installation progress" LIFECYCLE.md
+      grep -Fq "Every operational I/O path must emit structured logs" OBSERVABILITY.md
+      grep -Fq "A MAC address is an identifier, not an authentication factor" SECURITY.md
+      grep -Fq "A driver without telemetry or validation is incomplete" DRIVER_CONTRACT.md
+      grep -Fq "Machine discovery is the first technical vertical slice" docs/MACHINE_DISCOVERY.md
+      grep -Fq "One test should prove one contract" TESTING.md
+      grep -Fq "A source-tree-only success does not satisfy the release gate" PACKAGING.md
+      grep -Fq "There is no graphical or textual OS-selection menu on the client" ARCHITECTURE.md
+
+format_build:
+  extends: .go_job
+  stage: validate
+  script:
+    - |
+      set -euo pipefail
+      unformatted="$(gofmt -l cmd internal)"
+      if [[ -n "$unformatted" ]]; then
+        printf 'gofmt required for:\n%s\n' "$unformatted" >&2
+        while IFS= read -r file; do
+          [[ -n "$file" ]] && gofmt -d "$file"
+        done <<<"$unformatted"
+        exit 1
+      fi
+      OUTPUT=/tmp/aegispxe-ci bash scripts/build.sh >/dev/null
+      test "$(/tmp/aegispxe-ci -version)" = "$(bash scripts/version.sh project)"
+
+unit_tests:
+  extends: .go_job
+  stage: test
+  script:
+    - go test ./...
+
+race_detector:
+  extends: .go_job
+  stage: test
+  script:
+    - go test -race ./...
+
+vet:
+  extends: .go_job
+  stage: security
+  script:
+    - go vet ./...
+
+vulnerability_scan:
+  extends: .go_job
+  stage: security
+  script:
+    - go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
+# Merge requests build and inspect the Debian package in an isolated container.
+# No package is installed on the runner host in this job.
+package_build:
+  extends: .go_job
+  stage: package
+  before_script:
+    - umask 077
+    - apt-get update
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl python3 sbsigntool
+  script:
+    - |
+      set -euo pipefail
+      rm -rf dist
+      bash scripts/build-deb.sh
+      version="$(bash scripts/version.sh project)"
+      deb_version="$(bash scripts/version.sh debian)"
+      deb="dist/aegispxe_${version}_amd64.deb"
+      test -f "$deb"
+      test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
+      test "$(dpkg-deb --field "$deb" Version)" = "$deb_version"
+      test "$(dpkg-deb --field "$deb" Architecture)" = "amd64"
+  artifacts:
+    when: on_success
+    expire_in: 1 day
+    paths:
+      - dist/aegispxe_*.deb
+
+# Dedicated isolated Debian runner. This job intentionally installs the freshly
+# built package and exercises systemd/TFTP integration. It only runs on the
+# canonical default branch, so unreviewed merge-request code never reaches the
+# privileged runner.
+package_smoke:
+  stage: package
+  tags:
+    - aegis-release
+  resource_group: aegispxe-package-runner
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  before_script:
+    - umask 077
+    - sudo -n true
+    - sudo apt-get update
+    - sudo DEBIAN_FRONTEND=noninteractive apt-get install -y sbsigntool curl
+  script:
+    - |
+      set -euo pipefail
+      rm -rf dist
+      bash scripts/build-deb.sh
+      deb="$(find dist -maxdepth 1 -name 'aegispxe_*.deb' -print -quit)"
+      test -n "$deb"
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "./$deb"
+
+      test "$(/usr/lib/aegispxe/aegispxe-server -version)" = "$(bash scripts/version.sh project)"
+      test "$(stat -c %a /etc/aegispxe/aegispxe.env)" = "600"
+      test -x /usr/lib/aegispxe/agent/aegispxe-agent-template
+      test "$(/usr/lib/aegispxe/agent/aegispxe-agent-template -version)" = "$(bash scripts/version.sh project)"
+      if /usr/lib/aegispxe/agent/aegispxe-agent-template >/tmp/aegispxe-agent-template.out 2>&1; then
+        echo "unsealed agent template unexpectedly started" >&2
+        exit 1
+      fi
+
+      test ! -e /usr/lib/aegispxe/reporters/aegispxe-reporter-amd64
+      test -f /usr/lib/aegispxe/secureboot/manifest.json
+      test -f /usr/lib/aegispxe/secureboot/ipxe-shim.efi
+      test -f /usr/lib/aegispxe/secureboot/ipxe.efi
+      sbverify --list /usr/lib/aegispxe/secureboot/ipxe-shim.efi 2>&1 | grep -qi signature
+      sbverify --list /usr/lib/aegispxe/secureboot/ipxe.efi 2>&1 | grep -qi signature
+
+      sudo systemctl is-active --quiet aegispxe.service
+      sudo test -f /var/lib/aegispxe/agent-trust/agent-ca.crt
+      sudo test -f /var/lib/aegispxe/agent-trust/agent-ca.key
+      sudo test -f /var/lib/aegispxe/agent-trust/agent-update.key
+      test "$(sudo stat -c %a /var/lib/aegispxe/agent-trust/agent-ca.key)" = "600"
+      test "$(sudo stat -c %a /var/lib/aegispxe/agent-trust/agent-update.key)" = "600"
+
+      health="$(curl --fail --silent http://127.0.0.1:8090/healthz)"
+      grep -Fq '"status":"ok"' <<<"$health"
+      grep -Fq '"secure_boot_policy":"required"' <<<"$health"
+      grep -Fq '"secure_boot_assets_valid":true' <<<"$health"
+
+      . /etc/default/tftpd-hpa
+      test -f "$TFTP_DIRECTORY/ipxe-shim.efi"
+      test -f "$TFTP_DIRECTORY/ipxe.efi"
+      test -f "$TFTP_DIRECTORY/undionly.kpxe"
+      cmp -s /usr/lib/aegispxe/secureboot/ipxe-shim.efi "$TFTP_DIRECTORY/ipxe-shim.efi"
+      cmp -s /usr/lib/aegispxe/secureboot/ipxe.efi "$TFTP_DIRECTORY/ipxe.efi"
+      cmp -s /usr/lib/ipxe/undionly.kpxe "$TFTP_DIRECTORY/undionly.kpxe"
+
+      printf 'stale-aegispxe-asset\n' | sudo tee "$TFTP_DIRECTORY/ipxe.efi" >/dev/null
+      sudo /usr/lib/aegispxe/install-pxe-assets
+      cmp -s /usr/lib/aegispxe/secureboot/ipxe.efi "$TFTP_DIRECTORY/ipxe.efi"
+
+      decision="$(curl --fail --silent --get \
+        --data-urlencode 'mac=52:54:00:12:34:56' \
+        --data-urlencode 'smbios_uuid=11111111-2222-3333-4444-555555555555' \
+        --data-urlencode 'architecture=x86_64' \
+        --data-urlencode 'firmware=efi' \
+        --data-urlencode 'secure_boot=01' \
+        --data-urlencode 'setup_mode=00' \
+        http://127.0.0.1:8090/api/v1/discovery.ipxe)"
+      grep -Fq 'pending_approval' <<<"$decision"
+  artifacts:
+    when: on_success
+    expire_in: 1 day
+    paths:
+      - dist/aegispxe_*.deb
+
+release_build:
+  stage: package
+  tags:
+    - aegis-release
+  resource_group: aegispxe-package-runner
+  rules:
+    - if: '$CI_COMMIT_TAG'
+  before_script:
+    - umask 077
+    - sudo -n true
+    - sudo apt-get update
+    - sudo DEBIAN_FRONTEND=noninteractive apt-get install -y sbsigntool
+  script:
+    - |
+      set -euo pipefail
+      version="$(bash scripts/version.sh project)"
+      test "$CI_COMMIT_TAG" = "v$version"
+      rm -rf dist
+      for arch in amd64 arm64; do
+        DEB_ARCH="$arch" bash scripts/build-deb.sh
+      done
+      deb_version="$(bash scripts/version.sh debian)"
+      for arch in amd64 arm64; do
+        deb="dist/aegispxe_${version}_${arch}.deb"
+        test -f "$deb"
+        test "$(dpkg-deb --field "$deb" Package)" = "aegispxe"
+        test "$(dpkg-deb --field "$deb" Version)" = "$deb_version"
+        test "$(dpkg-deb --field "$deb" Architecture)" = "$arch"
+      done
+      (
+        cd dist
+        sha256sum aegispxe_*.deb > SHA256SUMS
+      )
+      {
+        printf 'RELEASE_VERSION=%s\n' "$version"
+        printf 'RELEASE_AMD64=aegispxe_%s_amd64.deb\n' "$version"
+        printf 'RELEASE_ARM64=aegispxe_%s_arm64.deb\n' "$version"
+      } > release.env
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - dist/aegispxe_*.deb
+      - dist/SHA256SUMS
+    reports:
+      dotenv: release.env
+
+publish_packages:
+  stage: release
+  image: curlimages/curl:latest
+  tags:
+    - aegis-ci
+  rules:
+    - if: '$CI_COMMIT_TAG'
+  needs:
+    - job: release_build
+      artifacts: true
+  script:
+    - |
+      set -eu
+      base="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/aegispxe/$CI_COMMIT_TAG"
+      for file in "dist/$RELEASE_AMD64" "dist/$RELEASE_ARM64" dist/SHA256SUMS; do
+        curl --fail --show-error --silent \
+          --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+          --upload-file "$file" \
+          "$base/$(basename "$file")"
+      done
+
+publish_release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  tags:
+    - aegis-ci
+  rules:
+    - if: '$CI_COMMIT_TAG'
+  needs:
+    - job: release_build
+      artifacts: true
+    - job: publish_packages
+  script:
+    - echo "Publishing AegisPXE $RELEASE_VERSION from $CI_COMMIT_TAG"
+  release:
+    tag_name: '$CI_COMMIT_TAG'
+    name: 'AegisPXE $RELEASE_VERSION'
+    description: 'AegisPXE $RELEASE_VERSION'
+    assets:
+      links:
+        - name: '$RELEASE_AMD64'
+          url: '$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/aegispxe/$CI_COMMIT_TAG/$RELEASE_AMD64'
+        - name: '$RELEASE_ARM64'
+          url: '$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/aegispxe/$CI_COMMIT_TAG/$RELEASE_ARM64'
+        - name: 'SHA256SUMS'
+          url: '$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/aegispxe/$CI_COMMIT_TAG/SHA256SUMS'

@@ -21,6 +21,7 @@ func TestBootTrustApprovalProofAndConsumedAssignmentRelease(t *testing.T) {
 	state := testStore(t)
 	ctx := context.Background()
 	spec := telemetryInstallation(t, state, "BC:24:11:00:30:01")
+	makeInitialAgentBuildReady(t, state)
 	if _, err := state.SetMachinePolicy(ctx, spec.MachineID, machine.PolicyProvision, "req_policy", "test:operator"); err != nil {
 		t.Fatal(err)
 	}
@@ -88,6 +89,7 @@ func TestBootTrustCancelledAssignmentRejectsSecretRelease(t *testing.T) {
 	state := testStore(t)
 	ctx := context.Background()
 	spec := telemetryInstallation(t, state, "BC:24:11:00:30:02")
+	makeInitialAgentBuildReady(t, state)
 	if _, err := state.SetMachinePolicy(ctx, spec.MachineID, machine.PolicyProvision, "req_policy", "test:operator"); err != nil {
 		t.Fatal(err)
 	}

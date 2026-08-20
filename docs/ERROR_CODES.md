@@ -16,6 +16,7 @@ Examples:
 - `DRV001_DRIVER_SPEC_UNSUPPORTED`
 - `INS003_INSTALLATION_ASSIGNMENT_INVALID`
 - `SEC001_CRYPTOGRAPHIC_BOOT_TRUST_REQUIRED`
+- `AGT014_AGENT_ENROLLMENT_REPLAY_REJECTED`
 - `VAL001_FIRST_BOOT_VALIDATION_FAILED`
 
 ## Namespaces
@@ -26,6 +27,7 @@ Examples:
 - `DRV`: driver compile/render/capability,
 - `INS`: installation specification, assignment, native installer and first-boot runtime,
 - `SEC`: authentication, authorization, trust, Secure Boot and secret handling,
+- `AGT`: managed-Agent identity, build, enrollment, certificate and heartbeat state,
 - `VAL`: desired-state validation,
 - `SYS`: internal service/storage/platform failures.
 
@@ -91,6 +93,23 @@ Examples:
 | `SEC023_SECURE_BOOT_REQUIRED` | Required Secure Boot policy refused provisioning because the Machine was not observed in UEFI Secure Boot enabled state. |
 | `SEC024_SECURE_BOOT_EVIDENCE_INVALID` | Reported UEFI `SecureBoot`/`SetupMode` values were malformed and therefore rejected. |
 | `SEC025_SECURE_BOOT_ASSETS_INVALID` | The packaged iPXE Secure Boot chain is missing, modified, unsafe, unpinned or failed runtime integrity validation. |
+| `AGT001_AGENT_NOT_FOUND` | The requested managed Agent does not exist. |
+| `AGT002_AGENT_CONFLICT` | The requested managed-Agent state transition conflicts with existing Agent/build state. |
+| `AGT003_AGENT_INVALID` | Managed-Agent identity, policy or capability input is invalid. |
+| `AGT004_AGENT_BUILD_NOT_READY` | The desired per-installation Agent build is not fully ready, so provisioning must remain unarmed. |
+| `AGT005_AGENT_BUILD_NOT_FOUND` | The requested managed-Agent build generation does not exist. |
+| `AGT006_AGENT_BUILD_INVALID` | Managed-Agent build artifact metadata or signature material is malformed or incomplete. |
+| `AGT007_AGENT_BUILD_QUEUE_EMPTY` | No managed-Agent build is queued for the worker. |
+| `AGT008_AGENT_BUILD_FAILED` | The managed-Agent build worker could not produce a trusted package. |
+| `AGT009_AGENT_TRUST_UNAVAILABLE` | The managed-Agent CA or update-signing trust material is unavailable or invalid. |
+| `AGT010_AGENT_BUILDER_NOT_CONFIGURED` | The managed-Agent build worker cannot run because required controller/build configuration is absent. |
+| `AGT011_AGENT_ENROLLMENT_REQUIRED` | The Agent has not completed its one-time enrollment and therefore has no authenticated runtime identity. |
+| `AGT012_AGENT_ENROLLMENT_INVALID` | The enrollment request or single-use credential does not match the managed Agent binding. |
+| `AGT013_AGENT_ENROLLMENT_EXPIRED` | The single-use managed-Agent enrollment credential has expired. |
+| `AGT014_AGENT_ENROLLMENT_REPLAY_REJECTED` | A previously consumed managed-Agent enrollment credential was presented again. |
+| `AGT015_AGENT_CERTIFICATE_INVALID` | A client certificate is unknown, expired, malformed or bound to a different Agent. |
+| `AGT016_AGENT_CERTIFICATE_REVOKED` | The managed Agent or its client certificate has been revoked and may no longer authenticate. |
+| `AGT017_AGENT_HEARTBEAT_INVALID` | An authenticated heartbeat has invalid or untrusted version, generation, architecture or bounded inventory data. |
 | `VAL001_FIRST_BOOT_VALIDATION_FAILED` | The installed OS failed one or more mandatory AegisPXE first-boot validation checks. |
 | `SYS001_STORAGE_FAILURE` | The persistent store could not complete an operation safely. |
 
