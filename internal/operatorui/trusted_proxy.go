@@ -125,11 +125,17 @@ func (h *trustedProxyIdentityHandler) ServeHTTP(w http.ResponseWriter, r *http.R
 	if subject, ok := h.proxy.Identity(r); ok {
 		identity := externalIdentity{Provider: trustedProxyProvider, Subject: subject}
 		request = request.WithContext(context.WithValue(request.Context(), externalIdentityContextKey{}, identity))
-		h.logger.InfoContext(request.Context(), "trusted proxy identity accepted",
+		// Successful proxy identity injection happens for every Studio request,
+		// including assets and polling. Keep it available for deep diagnostics
+		// without flooding normal INFO logs; actual passkey authentication and
+		// security-relevant rejections remain INFO/WARN audit signals.
+		h.logger.DebugContext(request.Context(), "trusted proxy identity accepted",
 			"component", "operator.proxy",
 			"operation", "identity",
 			"request_id", requestID(request),
 			"remote", remoteHost(request),
+			"method", request.Method,
+			"path", request.URL.Path,
 			"provider", identity.Provider,
 			"external_subject", identity.Subject,
 			"result", "accepted",
