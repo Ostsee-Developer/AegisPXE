@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Ostsee-Developer/AegisPXE/internal/agentbuild"
+	"github.com/Ostsee-Developer/AegisPXE/internal/agentcontrol"
 	"github.com/Ostsee-Developer/AegisPXE/internal/agenttrust"
 	"github.com/Ostsee-Developer/AegisPXE/internal/fault"
 	"github.com/Ostsee-Developer/AegisPXE/internal/httpapi"
@@ -37,6 +38,7 @@ const (
 type namedHTTPServer struct {
 	name   string
 	server *http.Server
+	tls    bool
 }
 
 func main() {
@@ -88,9 +90,10 @@ func main() {
 		os.Exit(1)
 	}
 	controllerURL := env("AEGISPXE_AGENT_CONTROLLER_URL", "")
+	var agentHTTPServer *http.Server
 	if controllerURL == "" {
-		logger.Warn("managed agent build worker disabled until controller URL is configured",
-			"component", "agent.build_worker",
+		logger.Warn("managed agent control plane and build worker disabled until controller URL is configured",
+			"component", "agent.control",
 			"operation", "configuration",
 			"instance_id", agentAuthority.InstanceID(),
 			"error_code", fault.AgentBuilderNotConfigured,
@@ -125,6 +128,39 @@ func main() {
 				stop()
 			}
 		}()
+
+		agentListen := env("AEGISPXE_AGENT_LISTEN", "0.0.0.0:8092")
+		if strings.EqualFold(agentListen, "disabled") {
+			logger.Warn("managed agent control-plane listener disabled",
+				"component", "agent.control",
+				"operation", "configuration",
+				"instance_id", agentAuthority.InstanceID(),
+				"controller_url", controllerURL,
+				"result", "disabled",
+			)
+		} else {
+			controlPlane, err := agentcontrol.New(state, agentAuthority, logger)
+			if err != nil {
+				logger.Error("startup failed", "component", "agent.control", "operation", "configuration", "error_code", fault.AgentTrustUnavailable, "result", "failure", "error", err)
+				os.Exit(1)
+			}
+			tlsConfig, err := controlPlane.TLSConfig(controllerURL)
+			if err != nil {
+				logger.Error("startup failed", "component", "agent.control", "operation", "tls_configuration", "error_code", fault.AgentTrustUnavailable, "result", "failure", "error", err)
+				os.Exit(1)
+			}
+			agentHTTPServer = newHTTPServer(agentListen, controlPlane.Handler())
+			agentHTTPServer.TLSConfig = tlsConfig
+			logger.Info("managed agent control-plane listener configured",
+				"component", "agent.control",
+				"operation", "configuration",
+				"instance_id", agentAuthority.InstanceID(),
+				"controller_url", controllerURL,
+				"address", agentListen,
+				"tls_min_version", "1.3",
+				"result", "enabled",
+			)
+		}
 	}
 
 	operatorAuth, err := operator.LoadOrCreate(env("AEGISPXE_OPERATOR_KEY", "/var/lib/aegispxe/operator.key"), logger)
@@ -162,13 +198,21 @@ func main() {
 		studioHandler = operatorui.RequireTrustedProxyOrLoopback(studioHandler, proxyTrust, logger)
 		servers = append(servers, namedHTTPServer{name: "studio", server: newHTTPServer(studioAddress, studioHandler)})
 	}
+	if agentHTTPServer != nil {
+		servers = append(servers, namedHTTPServer{name: "agent", server: agentHTTPServer, tls: true})
+	}
 
 	errCh := make(chan error, len(servers))
 	for _, item := range servers {
 		item := item
-		logger.Info("AegisPXE server starting", "component", "server", "operation", "listen", "version", version, "listener", item.name, "address", item.server.Addr, "trusted_proxy_enabled", item.name == "studio" && proxyTrust.Enabled(), "webauthn_enabled", item.name == "studio" && passkeys != nil, "secure_boot_policy", secureBootPolicy, "secure_boot_assets_valid", secureBootAssetsValid, "write_timeout_ms", serverWriteTimeout.Milliseconds())
+		logger.Info("AegisPXE server starting", "component", "server", "operation", "listen", "version", version, "listener", item.name, "address", item.server.Addr, "tls_enabled", item.tls, "trusted_proxy_enabled", item.name == "studio" && proxyTrust.Enabled(), "webauthn_enabled", item.name == "studio" && passkeys != nil, "secure_boot_policy", secureBootPolicy, "secure_boot_assets_valid", secureBootAssetsValid, "write_timeout_ms", item.server.WriteTimeout.Milliseconds())
 		go func() {
-			err := item.server.ListenAndServe()
+			var err error
+			if item.tls {
+				err = item.server.ListenAndServeTLS("", "")
+			} else {
+				err = item.server.ListenAndServe()
+			}
 			if errors.Is(err, http.ErrServerClosed) {
 				err = nil
 			}
