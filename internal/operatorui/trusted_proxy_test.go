@@ -56,7 +56,7 @@ func TestTrustedProxyInjectsIdentityOnlyForConfiguredDirectPeer(t *testing.T) {
 	}
 }
 
-func TestTrustedProxyGateAllowsLoopbackOrSecureProxySourceWithoutIdentity(t *testing.T) {
+func TestTrustedProxyGateAllowsHealthProbeLoopbackOrSecureProxySource(t *testing.T) {
 	proxy, err := ParseTrustedProxy("192.0.2.10", "X-Remote-User", "X-Forwarded-Proto")
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +66,31 @@ func TestTrustedProxyGateAllowsLoopbackOrSecureProxySourceWithoutIdentity(t *tes
 	})
 	handler := RequireTrustedProxyOrLoopback(next, proxy, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 
-	loopback := httptest.NewRequest(http.MethodGet, "http://dashboard.test/healthz", nil)
+	health := httptest.NewRequest(http.MethodGet, "http://dashboard.test/healthz", nil)
+	health.RemoteAddr = "192.0.2.11:42000"
+	healthRec := httptest.NewRecorder()
+	handler.ServeHTTP(healthRec, health)
+	if healthRec.Code != http.StatusNoContent {
+		t.Fatalf("unauthenticated health probe status=%d", healthRec.Code)
+	}
+
+	healthHead := httptest.NewRequest(http.MethodHead, "http://dashboard.test/healthz", nil)
+	healthHead.RemoteAddr = "192.0.2.11:42000"
+	healthHeadRec := httptest.NewRecorder()
+	handler.ServeHTTP(healthHeadRec, healthHead)
+	if healthHeadRec.Code != http.StatusNoContent {
+		t.Fatalf("unauthenticated health HEAD probe status=%d", healthHeadRec.Code)
+	}
+
+	healthPost := httptest.NewRequest(http.MethodPost, "http://dashboard.test/healthz", nil)
+	healthPost.RemoteAddr = "192.0.2.11:42000"
+	healthPostRec := httptest.NewRecorder()
+	handler.ServeHTTP(healthPostRec, healthPost)
+	if healthPostRec.Code != http.StatusForbidden {
+		t.Fatalf("unauthenticated health POST status=%d want=403", healthPostRec.Code)
+	}
+
+	loopback := httptest.NewRequest(http.MethodGet, "http://dashboard.test/ui/", nil)
 	loopback.RemoteAddr = "127.0.0.1:42000"
 	loopbackRec := httptest.NewRecorder()
 	handler.ServeHTTP(loopbackRec, loopback)
@@ -74,13 +98,13 @@ func TestTrustedProxyGateAllowsLoopbackOrSecureProxySourceWithoutIdentity(t *tes
 		t.Fatalf("loopback status=%d", loopbackRec.Code)
 	}
 
-	trusted := httptest.NewRequest(http.MethodGet, "http://dashboard.test/healthz", nil)
+	trusted := httptest.NewRequest(http.MethodGet, "http://dashboard.test/ui/", nil)
 	trusted.RemoteAddr = "192.0.2.10:42000"
 	trusted.Header.Set("X-Forwarded-Proto", "https")
 	trustedRec := httptest.NewRecorder()
 	handler.ServeHTTP(trustedRec, trusted)
 	if trustedRec.Code != http.StatusNoContent {
-		t.Fatalf("trusted proxy health source status=%d", trustedRec.Code)
+		t.Fatalf("trusted proxy source status=%d", trustedRec.Code)
 	}
 
 	direct := httptest.NewRequest(http.MethodGet, "http://dashboard.test/ui/", nil)
